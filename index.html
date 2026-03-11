@@ -1,0 +1,851 @@
+<!DOCTYPE html>
+<html lang="pt-PT">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NutriMassa PRO</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <style>
+        .custom-scrollbar::-webkit-scrollbar { width: 5px; }
+        .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: #3f3f46; border-radius: 10px; }
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #6366f1; }
+        
+        /* Previne seleção de texto em botões */
+        .no-select { user-select: none; }
+    </style>
+</head>
+<body class="bg-neutral-900 text-neutral-100 font-sans pb-10">
+
+    <div id="app-root"></div>
+
+    <script type="module">
+        // --- IMPORTAÇÕES FIREBASE (Nativo da Plataforma) ---
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInWithCustomToken, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, collection, doc, setDoc, deleteDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        // --- CONFIGURAÇÃO DA BASE DE DADOS ---
+        const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {};
+        const app = initializeApp(firebaseConfig);
+        const auth = getAuth(app);
+        const db = getFirestore(app);
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+
+        // --- DADOS FIXOS ---
+        const INGREDIENTS = {
+            energia: [
+                { name: "Beterraba", macros: { kcal: 43, carb: 10, prot: 1.6, fat: 0.2 } },
+                { name: "Melancia", macros: { kcal: 30, carb: 8, prot: 0.6, fat: 0.2 } },
+                { name: "Aveia", macros: { kcal: 389, carb: 66, prot: 16.9, fat: 6.9 } },
+                { name: "Batata Doce", macros: { kcal: 86, carb: 20.1, prot: 1.6, fat: 0.1 } },
+                { name: "Mandioca (Macaxeira)", macros: { kcal: 160, carb: 38.1, prot: 1.4, fat: 0.3 } },
+                { name: "Arroz Integral", macros: { kcal: 111, carb: 23, prot: 2.6, fat: 0.9 } },
+                { name: "Macarrão Integral", macros: { kcal: 124, carb: 26.5, prot: 5.3, fat: 0.5 } },
+                { name: "Quinoa", macros: { kcal: 120, carb: 21.3, prot: 4.4, fat: 1.9 } },
+                { name: "Mel natural", macros: { kcal: 304, carb: 82.4, prot: 0.3, fat: 0 } },
+                { name: "Banana", macros: { kcal: 89, carb: 22.8, prot: 1.1, fat: 0.3 } }
+            ],
+            proteina: [
+                { name: "Peito de Frango", macros: { kcal: 165, carb: 0, prot: 31, fat: 3.6 } },
+                { name: "Sobrecoxa de Frango", macros: { kcal: 209, carb: 0, prot: 26, fat: 10.9 } },
+                { name: "Patinho bovino", macros: { kcal: 133, carb: 0, prot: 21.6, fat: 4.5 } },
+                { name: "Músculo bovino", macros: { kcal: 140, carb: 0, prot: 21, fat: 5 } },
+                { name: "Alcatra", macros: { kcal: 163, carb: 0, prot: 21.3, fat: 8 } },
+                { name: "Filé Mignon bovino", macros: { kcal: 220, carb: 0, prot: 20, fat: 15 } },
+                { name: "Tilápia", macros: { kcal: 96, carb: 0, prot: 20.1, fat: 1.7 } },
+                { name: "Salmão", macros: { kcal: 208, carb: 0, prot: 20.4, fat: 13.4 } },
+                { name: "Atum", macros: { kcal: 130, carb: 0, prot: 28, fat: 1 } },
+                { name: "Ovo de Galinha", macros: { kcal: 143, carb: 0.7, prot: 12.6, fat: 9.5 } }
+            ],
+            suporte: [
+                { name: "Abacate", macros: { kcal: 160, carb: 8.5, prot: 2, fat: 14.7 } },
+                { name: "Azeite Extravirgem", macros: { kcal: 884, carb: 0, prot: 0, fat: 100 } },
+                { name: "Óleo de Coco", macros: { kcal: 862, carb: 0, prot: 0, fat: 100 } },
+                { name: "Castanha-do-Pará", macros: { kcal: 659, carb: 11.7, prot: 14.3, fat: 67.1 } },
+                { name: "Amêndoa", macros: { kcal: 579, carb: 21.6, prot: 21.2, fat: 49.9 } },
+                { name: "Pasta de Amendoim", macros: { kcal: 588, carb: 20, prot: 25, fat: 50 } },
+                { name: "Brócolis", macros: { kcal: 34, carb: 6.6, prot: 2.8, fat: 0.4 } },
+                { name: "Espinafre", macros: { kcal: 23, carb: 3.6, prot: 2.9, fat: 0.4 } },
+                { name: "Chocolate Amargo", macros: { kcal: 598, carb: 46, prot: 7.8, fat: 43 } },
+                { name: "Canela", macros: { kcal: 247, carb: 80.6, prot: 4, fat: 1.2 } }
+            ]
+        };
+
+        const INITIAL_RECIPES = [
+            {
+                id: "1", name: "Vitamina Vasodilatadora", goal: "massa", type: "Energia & Pump", icon: "Flame",
+                macros: { kcal: 210, carb: 45, prot: 5, fat: 1 },
+                ingredients: ["50g de Beterraba (1/2 unid.)", "150g de Melancia (1 fatia)", "200ml de Água de Coco", "5g de Maca Peruana"],
+                instructions: "Bata no liquidificador 1 fatia média de melancia, 1/2 beterraba, 200ml de água de coco e 1 colher de chá de maca peruana. Beba 30 min antes do treino.",
+                isCustom: false
+            },
+            {
+                id: "2", name: "Mingau Seca Barriga", goal: "perda", type: "Saciedade & Fibras", icon: "Activity",
+                macros: { kcal: 280, carb: 35, prot: 15, fat: 8 },
+                ingredients: ["30g de Aveia", "150ml de Leite Desnatado", "Canela a gosto", "50g de Morango"],
+                instructions: "Cozinhe 30g de aveia em 150ml de leite desnatado. Adicione canela e cubra com morangos picados. Ideal para segurar a fome.",
+                isCustom: false
+            }
+        ];
+
+        const APP_GOALS = [
+            { id: 'massa', label: 'Ganho de Massa', desc: 'Foco em Hipertrofia e Superávit', icon: 'trending-up', color: 'text-orange-500', bg: 'bg-orange-500' },
+            { id: 'perda', label: 'Perda de Peso', desc: 'Foco em Deficit e Saciedade', icon: 'trending-down', color: 'text-blue-500', bg: 'bg-blue-500' },
+            { id: 'recomp', label: 'Ganho + Perda', desc: 'Recomposição Corporal', icon: 'scale', color: 'text-purple-500', bg: 'bg-purple-500' }
+        ];
+
+        // --- ESTADO DA APLICAÇÃO (STATE) ---
+        const state = {
+            user: null,
+            activeTab: 'recipes',
+            currentGoalId: 'massa',
+            selectedRecipe: null,
+            editingRecipeData: null,
+            userRecipes: [],
+            userIngredients: [],
+            selectedAIIngredients: [],
+            searchTerm: '',
+            isSearchFocused: false,
+            isGenerating: false,
+            aiError: "",
+            infoIngredient: null,
+            pantrySearch: '',
+            showAddModal: false,
+            newIngredient: { name: '', category: 'energia', kcal: '', prot: '', carb: '', fat: '' }
+        };
+
+        // --- UTILITÁRIOS ---
+        const getMergedPantry = () => {
+            const merged = JSON.parse(JSON.stringify(INGREDIENTS));
+            state.userIngredients.forEach(item => {
+                if (merged[item.category]) merged[item.category].unshift(item);
+            });
+            return merged;
+        };
+
+        const getAllIngredientsFlat = () => {
+            const pantry = getMergedPantry();
+            return [
+                ...pantry.energia.map(i => ({ ...i, category: 'energia' })),
+                ...pantry.proteina.map(i => ({ ...i, category: 'proteina' })),
+                ...pantry.suporte.map(i => ({ ...i, category: 'suporte' }))
+            ];
+        };
+
+        const getIconHTML = (iconName, className = "") => `<i data-lucide="${iconName}" class="${className}"></i>`;
+        const getRecipeIcon = (iconName, className = "") => {
+            const map = {
+                'Flame': `<i data-lucide="flame" class="text-red-500 ${className}"></i>`,
+                'Dumbbell': `<i data-lucide="dumbbell" class="text-orange-500 ${className}"></i>`,
+                'Heart': `<i data-lucide="heart" class="text-purple-500 ${className}"></i>`,
+                'Activity': `<i data-lucide="activity" class="text-green-500 ${className}"></i>`,
+                'Scale': `<i data-lucide="scale" class="text-indigo-500 ${className}"></i>`,
+                'Sparkles': `<i data-lucide="sparkles" class="text-yellow-400 ${className}"></i>`
+            };
+            return map[iconName] || `<i data-lucide="chef-hat" class="text-neutral-400 ${className}"></i>`;
+        };
+
+        // --- LÓGICA DE RENDERIZAÇÃO (DOM) ---
+        const render = () => {
+            const root = document.getElementById('app-root');
+            const currentGoal = APP_GOALS.find(g => g.id === state.currentGoalId);
+            const allRecipes = [...state.userRecipes, ...INITIAL_RECIPES];
+            const filteredRecipes = allRecipes.filter(r => r.goal === state.currentGoalId);
+
+            let html = `
+                <!-- HEADER & GOAL SELECTOR -->
+                <header class="bg-neutral-800 border-b border-neutral-700 sticky top-0 z-40 shadow-lg">
+                    <div class="max-w-6xl mx-auto p-4 md:p-6 flex flex-col gap-6">
+                        <div class="flex flex-col md:flex-row justify-between items-center gap-4">
+                            <div class="flex items-center gap-3">
+                                <div class="p-2 rounded-lg text-white transition-colors ${currentGoal.bg}">
+                                    ${getIconHTML('target', 'w-7 h-7')}
+                                </div>
+                                <div>
+                                    <h1 class="text-2xl font-bold text-white tracking-wide">NutriMassa <span class="${currentGoal.color}">PRO</span></h1>
+                                    <p class="text-xs text-neutral-400 tracking-wider uppercase font-bold">
+                                        Nutrição de Elite <span class="text-neutral-500 font-normal">| Cloud Sync ${state.user ? '🟢' : '⚪'}</span>
+                                    </p>
+                                </div>
+                            </div>
+                            
+                            <div class="flex bg-neutral-900 p-1 rounded-lg border border-neutral-700 overflow-x-auto w-full md:w-auto">
+                                <button onclick="window.appActions.setTab('recipes')" class="flex items-center gap-2 px-4 py-2 rounded-md transition-all whitespace-nowrap ${state.activeTab === 'recipes' ? 'bg-neutral-700 text-white font-medium shadow' : 'text-neutral-400 hover:text-white'}">
+                                    ${getIconHTML('utensils-crossed', 'w-4 h-4')} <span class="hidden sm:inline">Receitas</span>
+                                </button>
+                                <button onclick="window.appActions.setTab('ingredients')" class="flex items-center gap-2 px-4 py-2 rounded-md transition-all whitespace-nowrap ${state.activeTab === 'ingredients' ? 'bg-neutral-700 text-white font-medium shadow' : 'text-neutral-400 hover:text-white'}">
+                                    ${getIconHTML('list', 'w-4 h-4')} <span class="hidden sm:inline">Despensa (Macros)</span>
+                                </button>
+                                <button onclick="window.appActions.setTab('ai')" class="flex items-center gap-2 px-4 py-2 rounded-md transition-all whitespace-nowrap ${state.activeTab === 'ai' ? 'bg-gradient-to-r from-purple-600 to-indigo-600 text-white font-bold shadow-lg shadow-purple-900/50' : 'text-purple-400 hover:text-purple-300'}">
+                                    ${getIconHTML('sparkles', `w-4 h-4 ${state.activeTab === 'ai' ? 'animate-pulse' : ''}`)} Gerador IA ✨
+                                </button>
+                            </div>
+                        </div>
+
+                        <div class="bg-neutral-900/50 p-2 rounded-xl border border-neutral-700/50 flex flex-col md:flex-row gap-2">
+                            ${APP_GOALS.map(goal => `
+                                <button onclick="window.appActions.setGoal('${goal.id}')" class="flex-1 flex flex-col items-center justify-center p-3 rounded-lg transition-all border ${state.currentGoalId === goal.id ? `${goal.bg} border-transparent text-white shadow-md transform scale-[1.02]` : 'bg-neutral-800 border-neutral-700 text-neutral-400 hover:bg-neutral-700 hover:text-neutral-200'}">
+                                    <div class="flex items-center gap-2 font-bold mb-1">
+                                        ${getIconHTML(goal.icon, 'w-4 h-4')} ${goal.label}
+                                    </div>
+                                    <span class="text-[10px] text-center px-2 ${state.currentGoalId === goal.id ? 'text-white/80' : 'text-neutral-500'}">
+                                        ${goal.desc}
+                                    </span>
+                                </button>
+                            `).join('')}
+                        </div>
+                    </div>
+                </header>
+
+                <!-- MAIN CONTENT -->
+                <main class="max-w-6xl mx-auto p-4 md:p-6 mt-4 relative">
+                    ${renderActiveTab(filteredRecipes, currentGoal)}
+                </main>
+
+                <!-- MODALS -->
+                ${renderModals(currentGoal)}
+            `;
+
+            root.innerHTML = html;
+            lucide.createIcons(); // Recarregar ícones após atualizar o DOM
+        };
+
+        const renderActiveTab = (filteredRecipes, currentGoal) => {
+            if (state.activeTab === 'recipes') {
+                return `
+                    <div class="space-y-6 animate-in fade-in duration-300">
+                        <div class="bg-neutral-800 rounded-xl p-6 border border-neutral-700 shadow-sm">
+                            <div class="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-6">
+                                <div>
+                                    <h2 class="text-xl font-bold text-white flex items-center gap-2">
+                                        ${getIconHTML('chef-hat', currentGoal.color + ' w-6 h-6')} Receitas para ${currentGoal.label}
+                                    </h2>
+                                    <p class="text-neutral-400 text-sm mt-1">Mostrando pratos otimizados para o seu objetivo atual.</p>
+                                </div>
+                                <button onclick="window.appActions.setTab('ai')" class="bg-purple-600 hover:bg-purple-500 text-white px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2 transition-colors shadow-lg shadow-purple-900/20">
+                                    ${getIconHTML('wand-2', 'w-4 h-4')} Nova com IA
+                                </button>
+                            </div>
+
+                            ${filteredRecipes.length === 0 ? `
+                                <div class="text-center py-12 bg-neutral-900 rounded-lg border border-dashed border-neutral-700">
+                                    <p class="text-neutral-500 mb-4">Nenhuma receita guardada para este objetivo ainda.</p>
+                                    <button onclick="window.appActions.setTab('ai')" class="text-purple-400 font-bold hover:underline cursor-pointer">Ir para o Gerador IA</button>
+                                </div>
+                            ` : `
+                                <div class="overflow-x-auto rounded-lg border border-neutral-700">
+                                    <table class="w-full text-left border-collapse min-w-[800px]">
+                                        <thead>
+                                            <tr class="bg-neutral-950 text-neutral-300 text-sm uppercase tracking-wider">
+                                                <th class="p-4 border-b border-neutral-700 font-medium">Receita</th>
+                                                <th class="p-4 border-b border-neutral-700 font-medium text-center">Calorias</th>
+                                                <th class="p-4 border-b border-neutral-700 font-medium text-center">Proteína</th>
+                                                <th class="p-4 border-b border-neutral-700 font-medium text-center">Carbo</th>
+                                                <th class="p-4 border-b border-neutral-700 font-medium text-center">Gordura</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody class="divide-y divide-neutral-700/50">
+                                            ${filteredRecipes.map(recipe => `
+                                                <tr onclick="window.appActions.openRecipe('${recipe.id}')" class="hover:bg-neutral-700/70 transition-colors cursor-pointer group ${recipe.isCustom ? 'bg-indigo-900/10' : 'bg-neutral-800'}">
+                                                    <td class="p-4 font-medium text-white group-hover:text-white transition-colors">
+                                                        <div class="flex items-center gap-2">
+                                                            ${recipe.name}
+                                                            ${recipe.isCustom ? `<span class="px-2 py-0.5 text-[10px] bg-purple-500/20 text-purple-300 rounded-full border border-purple-500/30">IA</span>` : ''}
+                                                        </div>
+                                                        <div class="text-xs text-neutral-500 mt-1 flex items-center gap-1">
+                                                            ${getRecipeIcon(recipe.icon, 'w-4 h-4')} ${recipe.type}
+                                                        </div>
+                                                    </td>
+                                                    <td class="p-4 text-center font-bold text-orange-400">${recipe.macros.kcal} <span class="text-[10px] font-normal text-neutral-500 uppercase">kcal</span></td>
+                                                    <td class="p-4 text-center font-bold text-blue-400">${recipe.macros.prot}g</td>
+                                                    <td class="p-4 text-center font-bold text-green-400">${recipe.macros.carb}g</td>
+                                                    <td class="p-4 text-center font-bold text-yellow-400">${recipe.macros.fat}g</td>
+                                                </tr>
+                                            `).join('')}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            `}
+                        </div>
+                    </div>`;
+            }
+
+            if (state.activeTab === 'ingredients') {
+                const pantry = getMergedPantry();
+                const categories = [
+                    { id: 'energia', data: pantry.energia, label: "Energia", icon: 'flame', color: 'text-red-400' },
+                    { id: 'proteina', data: pantry.proteina, label: "Proteína", icon: 'dumbbell', color: 'text-blue-400' },
+                    { id: 'suporte', data: pantry.suporte, label: "Equilíbrio", icon: 'heart', color: 'text-purple-400' }
+                ];
+
+                return `
+                    <div class="space-y-6 animate-in fade-in duration-300">
+                        <div class="bg-neutral-800 border border-neutral-700 rounded-xl p-6 flex flex-col md:flex-row items-start md:items-center justify-between gap-4 shadow-sm">
+                            <div class="flex-1">
+                                <h2 class="text-xl font-bold text-white flex items-center gap-2 mb-1">
+                                    ${getIconHTML('list', 'text-neutral-400 w-6 h-6')} Despensa Nutricional
+                                </h2>
+                                <p class="text-neutral-400 text-sm">Valores macro-nutricionais aproximados baseados em porções de <strong>100g</strong>.</p>
+                            </div>
+                            
+                            <div class="flex w-full md:w-auto items-center gap-3">
+                                <div class="relative flex-1 md:w-64">
+                                    ${getIconHTML('search', 'absolute left-3 top-1/2 -translate-y-1/2 text-neutral-500 w-4 h-4')}
+                                    <input type="text" placeholder="Buscar na despensa..." value="${state.pantrySearch}" oninput="window.appActions.setPantrySearch(this.value)" class="w-full bg-neutral-900 border border-neutral-700 text-white text-sm rounded-lg pl-9 pr-3 py-2 outline-none focus:border-orange-500 transition-colors" />
+                                </div>
+                                <button onclick="window.appActions.openAddModal()" class="bg-orange-500 hover:bg-orange-600 text-white px-3 py-2 rounded-lg text-sm font-bold flex items-center gap-2 transition-colors whitespace-nowrap">
+                                    ${getIconHTML('plus-circle', 'w-4 h-4')} <span class="hidden sm:inline">Novo</span>
+                                </button>
+                            </div>
+                        </div>
+
+                        <div class="grid grid-cols-1 md:grid-cols-3 gap-4 md:gap-6">
+                            ${categories.map(cat => {
+                                const filteredData = cat.data.filter(item => item.name.toLowerCase().includes(state.pantrySearch.toLowerCase()));
+                                return `
+                                <div class="bg-neutral-800/50 rounded-xl border border-neutral-700/50 p-4 flex flex-col h-[700px]">
+                                    <h4 class="font-bold ${cat.color} mb-4 text-sm uppercase flex items-center gap-2">
+                                        ${getIconHTML(cat.icon, 'w-4 h-4')} ${cat.label}
+                                        <span class="ml-auto text-xs font-normal text-neutral-500 bg-neutral-900 px-2 py-0.5 rounded-full border border-neutral-800">${filteredData.length} itens</span>
+                                    </h4>
+                                    <div class="grid grid-cols-1 gap-2 overflow-y-auto custom-scrollbar pr-2 flex-1">
+                                        ${filteredData.map(item => `
+                                            <button onclick="window.appActions.openInfo('${encodeURIComponent(JSON.stringify(item))}')" class="w-full flex justify-between items-center px-3 py-2 rounded-lg border transition-all bg-neutral-800 border-neutral-700 text-neutral-300 hover:border-neutral-500 hover:text-white group">
+                                                <div class="flex items-center gap-2 truncate">
+                                                    <div class="w-1.5 h-1.5 rounded-full flex-shrink-0 ${item.isCustom ? 'bg-purple-500' : 'bg-orange-500'}"></div>
+                                                    <span class="text-sm truncate">${item.name}</span>
+                                                </div>
+                                                <span class="flex items-center gap-1.5 text-[10px] uppercase font-bold tracking-wider text-neutral-500 group-hover:text-blue-400 transition-colors bg-neutral-900 px-2 py-1 rounded-md border border-neutral-800 shadow-inner">
+                                                    ${getIconHTML('info', 'w-3 h-3')} Macros
+                                                </span>
+                                            </button>
+                                        `).join('')}
+                                    </div>
+                                </div>`;
+                            }).join('')}
+                        </div>
+                    </div>`;
+            }
+
+            if (state.activeTab === 'ai') {
+                const pantry = getMergedPantry();
+                const allFlat = getAllIngredientsFlat();
+                const searchResults = state.searchTerm.trim() === '' ? [] : allFlat.filter(ing => ing.name.toLowerCase().includes(state.searchTerm.toLowerCase())).slice(0, 8);
+                const categories = [
+                    { id: 'energia', data: pantry.energia, label: "Energia", icon: 'flame', color: 'text-red-400' },
+                    { id: 'proteina', data: pantry.proteina, label: "Proteína", icon: 'dumbbell', color: 'text-blue-400' },
+                    { id: 'suporte', data: pantry.suporte, label: "Equilíbrio", icon: 'heart', color: 'text-purple-400' }
+                ];
+                
+                const totalKcal = state.selectedAIIngredients.reduce((acc, curr) => acc + curr.macros.kcal, 0);
+
+                return `
+                    <div class="space-y-6 animate-in fade-in duration-300">
+                        <div class="bg-gradient-to-br from-indigo-900/40 to-purple-900/20 border border-purple-500/30 rounded-2xl p-6 shadow-lg">
+                            <div class="flex flex-col lg:flex-row gap-6">
+                                <div class="flex-1 space-y-4 relative">
+                                    <h2 class="text-2xl font-bold text-white flex items-center gap-2">
+                                        ${getIconHTML('wand-2', 'text-purple-400 w-6 h-6')} IA Nutricionista
+                                    </h2>
+                                    <p class="text-purple-200 text-sm leading-relaxed">
+                                        Pesquise de <strong>2 a 5 ingredientes</strong> digitando abaixo. A Inteligência Artificial irá cruzar os valores e decidir <strong>automaticamente</strong> em qual categoria sua receita se encaixa melhor!
+                                    </p>
+
+                                    <!-- SEARCH BAR -->
+                                    <div class="relative mt-2 z-30">
+                                        <div class="flex items-center bg-neutral-950/80 border border-purple-500/50 rounded-xl px-4 py-3 shadow-inner focus-within:border-purple-400 focus-within:ring-1 focus-within:ring-purple-400 transition-all">
+                                            ${getIconHTML('search', 'text-purple-400 mr-3 w-5 h-5')}
+                                            <input type="text" placeholder="Digite o alimento (ex: Aveia, Frango, Banana...)" value="${state.searchTerm}" oninput="window.appActions.setAITerm(this.value)" onfocus="window.appActions.setAIFocus(true)" onblur="setTimeout(() => window.appActions.setAIFocus(false), 200)" class="bg-transparent border-none outline-none text-white w-full placeholder-neutral-500 text-sm" />
+                                        </div>
+
+                                        ${state.isSearchFocused && searchResults.length > 0 ? `
+                                            <div class="absolute top-full left-0 right-0 mt-2 bg-neutral-800 border border-purple-500/30 rounded-xl shadow-2xl overflow-hidden max-h-60 overflow-y-auto custom-scrollbar">
+                                                ${searchResults.map(ing => {
+                                                    const isSelected = state.selectedAIIngredients.some(i => i.name === ing.name);
+                                                    return `
+                                                    <button onmousedown="event.preventDefault(); window.appActions.toggleAIIngredient('${encodeURIComponent(JSON.stringify(ing))}')" ${isSelected ? 'disabled' : ''} class="w-full text-left px-4 py-3 border-b border-neutral-700/50 flex justify-between items-center transition-colors ${isSelected ? 'opacity-40 bg-neutral-900 cursor-not-allowed' : 'hover:bg-purple-900/40 text-neutral-200'}">
+                                                        <span class="flex items-center gap-2">
+                                                            ${ing.category === 'energia' ? getIconHTML('flame', 'text-red-400 w-3 h-3') : ing.category === 'proteina' ? getIconHTML('dumbbell', 'text-blue-400 w-3 h-3') : getIconHTML('heart', 'text-purple-400 w-3 h-3')}
+                                                            ${ing.name}
+                                                        </span>
+                                                        <span class="flex items-center gap-3">
+                                                            <span class="text-neutral-500 text-[10px] font-mono">${ing.macros.kcal} kcal</span>
+                                                            ${isSelected ? getIconHTML('check', 'text-purple-500 w-3 h-3') : ''}
+                                                        </span>
+                                                    </button>`;
+                                                }).join('')}
+                                            </div>
+                                        ` : ''}
+                                    </div>
+                                    
+                                    <div class="bg-neutral-900/50 p-4 rounded-xl border border-neutral-700 mt-4 relative z-10">
+                                        <div class="text-xs text-neutral-400 uppercase font-bold mb-3 flex justify-between">
+                                            <span>Ingredientes Selecionados ({${state.selectedAIIngredients.length}}/5)</span>
+                                            ${state.selectedAIIngredients.length > 0 ? `<span class="text-orange-400">~${totalKcal} kcal base (100g)</span>` : ''}
+                                        </div>
+                                        <div class="min-h-[50px] flex flex-wrap gap-2">
+                                            ${state.selectedAIIngredients.length === 0 ? `<span class="text-neutral-500 text-sm italic py-1">Nenhum selecionado...</span>` : 
+                                                state.selectedAIIngredients.map(ing => `
+                                                <button onclick="window.appActions.toggleAIIngredient('${encodeURIComponent(JSON.stringify(ing))}')" class="bg-purple-600/20 border border-purple-500/50 hover:bg-red-500/20 hover:border-red-500 hover:text-red-400 text-purple-200 px-3 py-1.5 rounded-lg text-xs flex items-center gap-2 transition-colors group">
+                                                    <span>${ing.name} <span class="text-[10px] opacity-60 ml-1">(${ing.macros.kcal}kc)</span></span>
+                                                    ${getIconHTML('x', 'group-hover:text-red-400 text-purple-400 w-3 h-3')}
+                                                </button>
+                                            `).join('')}
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div class="w-full lg:w-72 flex flex-col justify-end mt-4 lg:mt-0 relative z-10">
+                                    ${state.aiError ? `<div class="text-red-400 text-xs bg-red-900/20 p-3 rounded-lg mb-4 text-center border border-red-900">${state.aiError}</div>` : ''}
+                                    <button onclick="window.appActions.generateRecipe()" ${state.isGenerating || state.selectedAIIngredients.length < 2 ? 'disabled' : ''} class="w-full h-14 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 disabled:from-neutral-800 disabled:text-neutral-500 text-white font-bold rounded-xl flex justify-center items-center gap-2 transition-all shadow-lg">
+                                        ${state.isGenerating ? `${getIconHTML('loader-2', 'w-5 h-5 animate-spin')} Formulando dieta...` : `${getIconHTML('sparkles', 'w-5 h-5')} Gerar Receita ✨`}
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+
+                        <h3 class="text-lg font-bold text-neutral-300 mt-8 mb-4">Ou escolha pelas categorias:</h3>
+                        
+                        <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+                            ${categories.map(cat => `
+                                <div class="bg-neutral-800/50 rounded-xl border border-neutral-700/50 p-4">
+                                    <h4 class="font-bold ${cat.color} mb-4 text-sm uppercase flex items-center gap-2">
+                                        ${getIconHTML(cat.icon, 'w-4 h-4')} ${cat.label}
+                                    </h4>
+                                    <div class="grid grid-cols-1 gap-2 max-h-[400px] overflow-y-auto custom-scrollbar pr-2">
+                                        ${cat.data.map(ing => {
+                                            const isSelected = state.selectedAIIngredients.some(i => i.name === ing.name);
+                                            return `
+                                            <div onclick="window.appActions.toggleAIIngredient('${encodeURIComponent(JSON.stringify(ing))}')" class="cursor-pointer flex justify-between items-center text-left px-3 py-2 rounded-lg border transition-all ${isSelected ? 'bg-purple-900/30 border-purple-500 text-white font-bold' : 'bg-neutral-800 border-neutral-700 text-neutral-300 hover:border-neutral-500'}">
+                                                <div class="flex items-center gap-2 truncate">
+                                                    <div class="w-1.5 h-1.5 rounded-full flex-shrink-0 ${isSelected ? 'bg-purple-500' : 'bg-orange-500'}"></div>
+                                                    <span class="text-sm truncate">${ing.name}</span>
+                                                </div>
+                                                <div class="flex items-center gap-2 flex-shrink-0">
+                                                    <span class="text-[10px] text-neutral-500 font-mono">${ing.macros.kcal}k</span>
+                                                    <button onclick="event.stopPropagation(); window.appActions.openInfo('${encodeURIComponent(JSON.stringify(ing))}')" class="text-neutral-400 hover:text-blue-400 p-1 rounded-md hover:bg-blue-500/10 transition-colors" title="Ver Informações Nutricionais">
+                                                        ${getIconHTML('info', 'w-3 h-3')}
+                                                    </button>
+                                                </div>
+                                            </div>`;
+                                        }).join('')}
+                                    </div>
+                                </div>
+                            `).join('')}
+                        </div>
+                    </div>`;
+            }
+            return '';
+        };
+
+        const renderModals = (currentGoal) => {
+            let html = '';
+
+            // POP-UP MINI CARD INFO
+            if (state.infoIngredient) {
+                html += `
+                <div class="fixed inset-0 bg-black/60 flex items-center justify-center z-[60] p-4 backdrop-blur-sm transition-opacity" onclick="window.appActions.closeInfo()">
+                    <div class="bg-neutral-800 rounded-2xl w-full max-w-xs overflow-hidden shadow-2xl border border-neutral-700 transform transition-all" onclick="event.stopPropagation()">
+                        <div class="flex justify-between items-center p-4 border-b border-neutral-700 bg-neutral-850">
+                            <h3 class="font-bold text-lg text-white truncate pr-4">${state.infoIngredient.name}</h3>
+                            <button onclick="window.appActions.closeInfo()" class="p-1.5 bg-neutral-700 hover:bg-neutral-600 rounded-full text-white transition-colors">
+                                ${getIconHTML('x', 'w-4 h-4')}
+                            </button>
+                        </div>
+                        <div class="p-5 bg-neutral-900">
+                            <p class="text-xs text-neutral-500 mb-4 text-center uppercase tracking-widest font-bold">Valores por 100g</p>
+                            <div class="grid grid-cols-2 gap-3">
+                                <div class="bg-neutral-800 p-3 rounded-xl border border-neutral-700 text-center flex flex-col items-center justify-center shadow-inner">
+                                    <span class="text-[10px] text-orange-400 uppercase mb-1 font-bold flex items-center gap-1">${getIconHTML('flame', 'w-3 h-3')} Calorias</span>
+                                    <span class="font-bold text-2xl text-white">${state.infoIngredient.macros.kcal}</span>
+                                </div>
+                                <div class="bg-neutral-800 p-3 rounded-xl border border-neutral-700 text-center flex flex-col items-center justify-center shadow-inner">
+                                    <span class="text-[10px] text-blue-400 uppercase mb-1 font-bold flex items-center gap-1">${getIconHTML('dumbbell', 'w-3 h-3')} Proteína</span>
+                                    <span class="font-bold text-xl text-white">${state.infoIngredient.macros.prot}g</span>
+                                </div>
+                                <div class="bg-neutral-800 p-3 rounded-xl border border-neutral-700 text-center flex flex-col items-center justify-center shadow-inner">
+                                    <span class="text-[10px] text-green-400 uppercase mb-1 font-bold flex items-center gap-1">${getIconHTML('activity', 'w-3 h-3')} Carbo</span>
+                                    <span class="font-bold text-xl text-white">${state.infoIngredient.macros.carb}g</span>
+                                </div>
+                                <div class="bg-neutral-800 p-3 rounded-xl border border-neutral-700 text-center flex flex-col items-center justify-center shadow-inner">
+                                    <span class="text-[10px] text-yellow-400 uppercase mb-1 font-bold flex items-center gap-1">${getIconHTML('droplets', 'w-3 h-3')} Gordura</span>
+                                    <span class="font-bold text-xl text-white">${state.infoIngredient.macros.fat}g</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>`;
+            }
+
+            // MODAL ADICIONAR INGREDIENTE
+            if (state.showAddModal) {
+                html += `
+                <div class="fixed inset-0 bg-black/80 flex items-center justify-center z-[70] p-4 backdrop-blur-sm">
+                    <div class="bg-neutral-900 rounded-2xl w-full max-w-md overflow-hidden shadow-2xl border border-orange-500/50 flex flex-col">
+                        <div class="flex justify-between items-center p-5 border-b border-neutral-800 bg-neutral-850">
+                            <h2 class="text-xl font-bold text-white flex items-center gap-2">
+                                ${getIconHTML('plus-circle', 'text-orange-500 w-5 h-5')} Novo Ingrediente
+                            </h2>
+                            <button onclick="window.appActions.closeAddModal()" class="p-1.5 bg-neutral-800 hover:bg-neutral-700 rounded-full text-white transition-colors">
+                                ${getIconHTML('x', 'w-4 h-4')}
+                            </button>
+                        </div>
+                        
+                        <div class="p-5 space-y-4">
+                            <div>
+                                <label class="text-xs text-neutral-400 font-bold mb-1 block">Nome do Alimento</label>
+                                <input type="text" id="new-ing-name" value="${state.newIngredient.name}" oninput="state.newIngredient.name = this.value" placeholder="Ex: Pão Integral" class="w-full bg-neutral-800 border border-neutral-700 p-3 rounded-xl text-white outline-none focus:border-orange-500" />
+                            </div>
+                            
+                            <div>
+                                <label class="text-xs text-neutral-400 font-bold mb-1 block">Categoria (Coluna)</label>
+                                <select id="new-ing-cat" onchange="state.newIngredient.category = this.value" class="w-full bg-neutral-800 border border-neutral-700 p-3 rounded-xl text-white outline-none focus:border-orange-500">
+                                    <option value="energia" ${state.newIngredient.category === 'energia' ? 'selected' : ''}>Energia (Foco Carboidrato)</option>
+                                    <option value="proteina" ${state.newIngredient.category === 'proteina' ? 'selected' : ''}>Proteína</option>
+                                    <option value="suporte" ${state.newIngredient.category === 'suporte' ? 'selected' : ''}>Equilíbrio (Gordura/Fibras/Suporte)</option>
+                                </select>
+                            </div>
+
+                            <div class="grid grid-cols-2 gap-3">
+                                <div>
+                                    <label class="text-[10px] text-orange-400 uppercase font-bold mb-1 flex items-center gap-1">${getIconHTML('flame', 'w-3 h-3')} Calorias</label>
+                                    <input type="number" oninput="state.newIngredient.kcal = this.value" value="${state.newIngredient.kcal}" class="w-full bg-neutral-800 border border-neutral-700 p-2.5 rounded-xl text-white outline-none focus:border-orange-500" />
+                                </div>
+                                <div>
+                                    <label class="text-[10px] text-blue-400 uppercase font-bold mb-1 flex items-center gap-1">${getIconHTML('dumbbell', 'w-3 h-3')} Prot. (g)</label>
+                                    <input type="number" oninput="state.newIngredient.prot = this.value" value="${state.newIngredient.prot}" class="w-full bg-neutral-800 border border-neutral-700 p-2.5 rounded-xl text-white outline-none focus:border-orange-500" />
+                                </div>
+                                <div>
+                                    <label class="text-[10px] text-green-400 uppercase font-bold mb-1 flex items-center gap-1">${getIconHTML('activity', 'w-3 h-3')} Carbo (g)</label>
+                                    <input type="number" oninput="state.newIngredient.carb = this.value" value="${state.newIngredient.carb}" class="w-full bg-neutral-800 border border-neutral-700 p-2.5 rounded-xl text-white outline-none focus:border-orange-500" />
+                                </div>
+                                <div>
+                                    <label class="text-[10px] text-yellow-400 uppercase font-bold mb-1 flex items-center gap-1">${getIconHTML('droplets', 'w-3 h-3')} Gordura (g)</label>
+                                    <input type="number" oninput="state.newIngredient.fat = this.value" value="${state.newIngredient.fat}" class="w-full bg-neutral-800 border border-neutral-700 p-2.5 rounded-xl text-white outline-none focus:border-orange-500" />
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="p-5 border-t border-neutral-800 bg-neutral-850 flex justify-end">
+                            <button onclick="window.appActions.saveIngredient()" class="bg-orange-500 hover:bg-orange-600 px-5 py-2.5 rounded-lg text-white font-bold transition-colors w-full">
+                                Guardar na Cloud
+                            </button>
+                        </div>
+                    </div>
+                </div>`;
+            }
+
+            // RECIPE MODAL
+            if (state.selectedRecipe) {
+                const isEditing = !!state.editingRecipeData;
+                const rec = isEditing ? state.editingRecipeData : state.selectedRecipe;
+
+                html += `
+                <div class="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4 backdrop-blur-sm">
+                    <div class="bg-neutral-900 rounded-2xl w-full max-w-2xl overflow-hidden shadow-2xl flex flex-col max-h-[90vh] ${rec.isCustom ? 'border border-purple-500/50' : 'border border-neutral-700'}">
+                        
+                        <div class="flex justify-between items-center p-6 border-b border-neutral-800">
+                            <div>
+                                <div class="flex items-center gap-2 mb-1">
+                                    ${getRecipeIcon(rec.icon, 'w-5 h-5')}
+                                    <span class="text-xs font-bold uppercase tracking-wider text-neutral-400">${rec.type}</span>
+                                    ${rec.isCustom ? `<span class="ml-2 bg-purple-600/20 border border-purple-500/30 text-purple-300 text-[10px] px-2 py-0.5 rounded-full uppercase tracking-wider font-bold">Gerado por IA</span>` : ''}
+                                </div>
+                                <h2 class="text-2xl font-bold text-white pr-4">${rec.name}</h2>
+                            </div>
+                            <div class="flex items-center gap-2">
+                                ${!isEditing ? `
+                                    ${rec.isCustom ? `
+                                        <button onclick="window.appActions.startEditRecipe()" class="p-2 bg-neutral-800 hover:bg-blue-600/20 hover:text-blue-400 rounded-full text-neutral-400 transition-colors" title="Editar Receita">
+                                            ${getIconHTML('edit-2', 'w-4 h-4')}
+                                        </button>
+                                        <button onclick="window.appActions.deleteRecipe('${rec.id}')" class="p-2 bg-neutral-800 hover:bg-red-600/20 hover:text-red-400 rounded-full text-neutral-400 transition-colors" title="Apagar Receita">
+                                            ${getIconHTML('trash-2', 'w-4 h-4')}
+                                        </button>
+                                    ` : ''}
+                                    <button onclick="window.appActions.closeRecipe()" class="p-2 bg-neutral-800 hover:bg-neutral-700 rounded-full text-white transition-colors ml-2" title="Fechar">
+                                        ${getIconHTML('x', 'w-5 h-5')}
+                                    </button>
+                                ` : `
+                                    <button onclick="window.appActions.cancelEditRecipe()" class="px-4 py-2 bg-neutral-700 hover:bg-neutral-600 rounded-lg text-white text-sm transition-colors">Cancelar</button>
+                                    <button onclick="window.appActions.saveRecipeEdit()" class="px-4 py-2 bg-green-600 hover:bg-green-500 rounded-lg text-white text-sm flex items-center gap-2 transition-colors">
+                                        ${getIconHTML('save', 'w-4 h-4')} Guardar
+                                    </button>
+                                `}
+                            </div>
+                        </div>
+
+                        ${isEditing ? `
+                            <div class="p-6 overflow-y-auto flex-1 space-y-4">
+                                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                    <div>
+                                        <label class="text-xs text-neutral-400 font-bold mb-1 block">Nome da Receita</label>
+                                        <input type="text" oninput="state.editingRecipeData.name = this.value" value="${rec.name}" class="w-full bg-neutral-800 border border-neutral-700 p-3 rounded-xl text-white outline-none focus:border-purple-500" />
+                                    </div>
+                                    <div>
+                                        <label class="text-xs text-neutral-400 font-bold mb-1 block">Objetivo Associado</label>
+                                        <select onchange="state.editingRecipeData.goal = this.value" class="w-full bg-neutral-800 border border-neutral-700 p-3 rounded-xl text-white outline-none focus:border-purple-500">
+                                            <option value="massa" ${rec.goal === 'massa' ? 'selected' : ''}>Ganho de Massa</option>
+                                            <option value="perda" ${rec.goal === 'perda' ? 'selected' : ''}>Perda de Peso</option>
+                                            <option value="recomp" ${rec.goal === 'recomp' ? 'selected' : ''}>Ganho + Perda</option>
+                                        </select>
+                                    </div>
+                                </div>
+                                <div>
+                                    <label class="text-xs text-neutral-400 font-bold mb-1 block">Categoria Curta</label>
+                                    <input type="text" oninput="state.editingRecipeData.type = this.value" value="${rec.type}" class="w-full bg-neutral-800 border border-neutral-700 p-3 rounded-xl text-white outline-none focus:border-purple-500" />
+                                </div>
+                                <div>
+                                    <label class="text-xs text-neutral-400 font-bold mb-2 block">Macros</label>
+                                    <div class="grid grid-cols-4 gap-2">
+                                        <div class="bg-neutral-800 p-2 rounded-xl border border-neutral-700 text-center">
+                                            <span class="text-[10px] text-orange-400 block mb-1 uppercase">Calorias</span>
+                                            <input type="number" oninput="state.editingRecipeData.macros.kcal = parseInt(this.value)||0" value="${rec.macros.kcal}" class="w-full bg-transparent text-white font-bold text-center outline-none" />
+                                        </div>
+                                        <div class="bg-neutral-800 p-2 rounded-xl border border-neutral-700 text-center">
+                                            <span class="text-[10px] text-blue-400 block mb-1 uppercase">Proteína</span>
+                                            <input type="number" oninput="state.editingRecipeData.macros.prot = parseInt(this.value)||0" value="${rec.macros.prot}" class="w-full bg-transparent text-white font-bold text-center outline-none" />
+                                        </div>
+                                        <div class="bg-neutral-800 p-2 rounded-xl border border-neutral-700 text-center">
+                                            <span class="text-[10px] text-green-400 block mb-1 uppercase">Carbo</span>
+                                            <input type="number" oninput="state.editingRecipeData.macros.carb = parseInt(this.value)||0" value="${rec.macros.carb}" class="w-full bg-transparent text-white font-bold text-center outline-none" />
+                                        </div>
+                                        <div class="bg-neutral-800 p-2 rounded-xl border border-neutral-700 text-center">
+                                            <span class="text-[10px] text-yellow-400 block mb-1 uppercase">Gordura</span>
+                                            <input type="number" oninput="state.editingRecipeData.macros.fat = parseInt(this.value)||0" value="${rec.macros.fat}" class="w-full bg-transparent text-white font-bold text-center outline-none" />
+                                        </div>
+                                    </div>
+                                </div>
+                                <div>
+                                    <label class="text-xs text-neutral-400 font-bold mb-1 block">Ingredientes (Uma linha para cada)</label>
+                                    <textarea rows="4" oninput="state.editingRecipeData.ingredients = this.value.split('\\n')" class="w-full bg-neutral-800 border border-neutral-700 p-3 rounded-xl text-white outline-none focus:border-purple-500 custom-scrollbar">${rec.ingredients.join('\n')}</textarea>
+                                </div>
+                                <div>
+                                    <label class="text-xs text-neutral-400 font-bold mb-1 block">Modo de Preparo</label>
+                                    <textarea rows="4" oninput="state.editingRecipeData.instructions = this.value" class="w-full bg-neutral-800 border border-neutral-700 p-3 rounded-xl text-white outline-none focus:border-purple-500 custom-scrollbar">${rec.instructions}</textarea>
+                                </div>
+                            </div>
+                        ` : `
+                            <div class="p-6 overflow-y-auto flex-1 space-y-6">
+                                <div class="grid grid-cols-4 gap-2 md:gap-4">
+                                    <div class="bg-neutral-800 p-3 rounded-xl border border-neutral-700 text-center">
+                                        <p class="text-neutral-500 text-[10px] md:text-xs uppercase mb-1">Calorias</p>
+                                        <p class="font-bold text-lg md:text-xl text-orange-400">${rec.macros.kcal}</p>
+                                    </div>
+                                    <div class="bg-neutral-800 p-3 rounded-xl border border-neutral-700 text-center">
+                                        <p class="text-neutral-500 text-[10px] md:text-xs uppercase mb-1">Proteína</p>
+                                        <p class="font-bold text-lg md:text-xl text-blue-400">${rec.macros.prot}g</p>
+                                    </div>
+                                    <div class="bg-neutral-800 p-3 rounded-xl border border-neutral-700 text-center">
+                                        <p class="text-neutral-500 text-[10px] md:text-xs uppercase mb-1">Carbo</p>
+                                        <p class="font-bold text-lg md:text-xl text-green-400">${rec.macros.carb}g</p>
+                                    </div>
+                                    <div class="bg-neutral-800 p-3 rounded-xl border border-neutral-700 text-center">
+                                        <p class="text-neutral-500 text-[10px] md:text-xs uppercase mb-1">Gordura</p>
+                                        <p class="font-bold text-lg md:text-xl text-yellow-400">${rec.macros.fat}g</p>
+                                    </div>
+                                </div>
+                                <div>
+                                    <h3 class="font-bold text-white mb-3 flex items-center gap-2">
+                                        ${getIconHTML('list', `w-4 h-4 ${rec.isCustom ? 'text-purple-400' : 'text-neutral-400'}`)} Ingredientes Necessários
+                                    </h3>
+                                    <ul class="grid grid-cols-1 md:grid-cols-2 gap-2">
+                                        ${rec.ingredients.map(ing => `
+                                            <li class="bg-neutral-800 px-3 py-2 rounded-lg text-sm text-neutral-300 border border-neutral-700 flex items-center gap-2">
+                                                <div class="w-1.5 h-1.5 rounded-full flex-shrink-0 ${rec.isCustom ? 'bg-purple-500' : 'bg-orange-500'}"></div>
+                                                ${ing}
+                                            </li>
+                                        `).join('')}
+                                    </ul>
+                                </div>
+                                <div>
+                                    <h3 class="font-bold text-white mb-3 flex items-center gap-2">
+                                        ${getIconHTML('chef-hat', `w-4 h-4 ${rec.isCustom ? 'text-purple-400' : 'text-neutral-400'}`)} Modo de Preparo focado em ${currentGoal.label}
+                                    </h3>
+                                    <p class="text-neutral-300 leading-relaxed bg-neutral-800 p-5 rounded-xl border border-neutral-700">
+                                        ${rec.instructions}
+                                    </p>
+                                </div>
+                            </div>
+                        `}
+                    </div>
+                </div>`;
+            }
+
+            return html;
+        };
+
+        // --- AÇÕES GLOBAIS (Acessíveis pelo HTML inline) ---
+        window.appActions = {
+            setTab: (tab) => { state.activeTab = tab; render(); },
+            setGoal: (goal) => { state.currentGoalId = goal; render(); },
+            setPantrySearch: (val) => { state.pantrySearch = val; render(); },
+            setAITerm: (val) => { state.searchTerm = val; render(); },
+            setAIFocus: (val) => { state.isSearchFocused = val; render(); },
+            
+            openInfo: (itemStr) => { state.infoIngredient = JSON.parse(decodeURIComponent(itemStr)); render(); },
+            closeInfo: () => { state.infoIngredient = null; render(); },
+            
+            openAddModal: () => { state.showAddModal = true; render(); },
+            closeAddModal: () => { state.showAddModal = false; render(); },
+
+            openRecipe: (id) => { 
+                const all = [...state.userRecipes, ...INITIAL_RECIPES];
+                state.selectedRecipe = all.find(r => r.id === id); 
+                render(); 
+            },
+            closeRecipe: () => { state.selectedRecipe = null; state.editingRecipeData = null; render(); },
+            startEditRecipe: () => { state.editingRecipeData = JSON.parse(JSON.stringify(state.selectedRecipe)); render(); },
+            cancelEditRecipe: () => { state.editingRecipeData = null; render(); },
+
+            toggleAIIngredient: (ingStr) => {
+                const ing = JSON.parse(decodeURIComponent(ingStr));
+                const idx = state.selectedAIIngredients.findIndex(i => i.name === ing.name);
+                if (idx >= 0) {
+                    state.selectedAIIngredients.splice(idx, 1);
+                } else {
+                    if (state.selectedAIIngredients.length >= 5) {
+                        state.aiError = "Máximo de 5 ingredientes permitidos.";
+                        setTimeout(() => { state.aiError = ""; render(); }, 3000);
+                        return;
+                    }
+                    state.selectedAIIngredients.push(ing);
+                }
+                state.searchTerm = '';
+                render();
+            },
+
+            saveIngredient: async () => {
+                if(!state.newIngredient.name || !state.user) return;
+                const newIngId = Date.now().toString();
+                const newIngData = {
+                    id: newIngId,
+                    name: state.newIngredient.name,
+                    category: state.newIngredient.category,
+                    macros: {
+                        kcal: Number(state.newIngredient.kcal) || 0,
+                        prot: Number(state.newIngredient.prot) || 0,
+                        carb: Number(state.newIngredient.carb) || 0,
+                        fat: Number(state.newIngredient.fat) || 0
+                    },
+                    isCustom: true
+                };
+                try {
+                    await setDoc(doc(db, 'artifacts', appId, 'users', state.user.uid, 'pantry', newIngId), newIngData);
+                } catch (err) { console.error("Erro cloud:", err); }
+                
+                state.showAddModal = false;
+                state.newIngredient = { name: '', category: 'energia', kcal: '', prot: '', carb: '', fat: '' };
+                render();
+            },
+
+            deleteRecipe: async (id) => {
+                if (!state.user) return;
+                try {
+                    await deleteDoc(doc(db, 'artifacts', appId, 'users', state.user.uid, 'recipes', id));
+                } catch(err) { console.error(err); }
+                state.selectedRecipe = null;
+                state.editingRecipeData = null;
+                render();
+            },
+
+            saveRecipeEdit: async () => {
+                if (!state.user || !state.editingRecipeData.isCustom) return;
+                try {
+                    await setDoc(doc(db, 'artifacts', appId, 'users', state.user.uid, 'recipes', state.editingRecipeData.id), state.editingRecipeData);
+                } catch (err) { console.error(err); }
+                state.selectedRecipe = state.editingRecipeData;
+                state.editingRecipeData = null;
+                render();
+            },
+
+            generateRecipe: async () => {
+                if (state.selectedAIIngredients.length < 2) return;
+                state.isGenerating = true;
+                state.aiError = "";
+                render();
+
+                const ingredientNames = state.selectedAIIngredients.map(i => i.name).join(', ');
+                const prompt = `Atue como um nutricionista esportivo de elite.
+Crie uma receita utilizando OBRIGATORIAMENTE os seguintes ingredientes: ${ingredientNames}.
+Analise os macros e decida se é melhor para: "massa", "perda" ou "recomp".
+Retorne ESTRITAMENTE em JSON:
+{
+  "name": "Nome criativo", "goal": "massa", "type": "Categoria curta",
+  "macros": {"kcal": 100, "carb": 10, "prot": 10, "fat": 10},
+  "ingredients": ["100g de Frango", "Sal a gosto"],
+  "instructions": "Passo a passo em um parágrafo."
+}`;
+
+                const payload = {
+                    contents: [{ parts: [{ text: prompt }] }],
+                    generationConfig: { responseMimeType: "application/json" }
+                };
+
+                try {
+                    const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=`, {
+                        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload)
+                    });
+                    const json = await res.json();
+                    const aiText = json?.candidates?.[0]?.content?.parts?.[0]?.text;
+                    
+                    if (aiText) {
+                        const aiData = JSON.parse(aiText);
+                        const validGoal = ['massa', 'perda', 'recomp'].includes(aiData.goal) ? aiData.goal : 'recomp';
+                        const newRecipe = {
+                            id: Date.now().toString(), name: aiData.name + " ✨", goal: validGoal,
+                            type: aiData.type, icon: "Sparkles", macros: aiData.macros,
+                            ingredients: aiData.ingredients, instructions: aiData.instructions, isCustom: true
+                        };
+
+                        if (state.user) await setDoc(doc(db, 'artifacts', appId, 'users', state.user.uid, 'recipes', newRecipe.id), newRecipe);
+                        
+                        state.selectedRecipe = newRecipe;
+                        state.activeTab = 'recipes';
+                        state.currentGoalId = validGoal;
+                        state.selectedAIIngredients = [];
+                        state.searchTerm = '';
+                    }
+                } catch (e) {
+                    state.aiError = "Erro ao gerar a receita.";
+                } finally {
+                    state.isGenerating = false;
+                    render();
+                }
+            }
+        };
+
+        // --- INICIALIZAÇÃO ---
+        const init = async () => {
+            try {
+                if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+                    await signInWithCustomToken(auth, __initial_auth_token);
+                } else {
+                    await signInAnonymously(auth);
+                }
+            } catch (err) {}
+
+            onAuthStateChanged(auth, (user) => {
+                state.user = user;
+                if (user) {
+                    onSnapshot(collection(db, 'artifacts', appId, 'users', user.uid, 'recipes'), (snap) => {
+                        state.userRecipes = snap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a,b) => b.id - a.id);
+                        render();
+                    });
+                    onSnapshot(collection(db, 'artifacts', appId, 'users', user.uid, 'pantry'), (snap) => {
+                        state.userIngredients = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+                        render();
+                    });
+                }
+                render();
+            });
+
+            render();
+        };
+
+        init();
+    </script>
+</body>
+</html>
