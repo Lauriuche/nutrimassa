@@ -812,7 +812,6 @@
                                     </div>
                                 </div>
                                 <div>
-                                    <!-- AQUI ESTAVA O ERRO DE SEPARAÇÃO: O JS PRECISA DIVIDIR PELA QUEBRA DE LINHA REGEX -->
                                     <label class="text-[10px] sm:text-xs text-neutral-400 font-bold mb-1 block">Ingredientes (Uma linha para cada)</label>
                                     <textarea rows="4" oninput="state.editingRecipeData.ingredients = this.value.split(/\\r?\\n/)" class="w-full bg-neutral-800 border border-neutral-700 p-2.5 sm:p-3 rounded-xl text-white outline-none focus:border-purple-500 custom-scrollbar text-sm">${rec.ingredients.join('\n')}</textarea>
                                 </div>
@@ -1040,7 +1039,7 @@ Retorne ESTRITAMENTE em JSON:
                 };
 
                 try {
-                    const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`, {
+                    const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`, {
                         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload)
                     });
                     const json = await res.json();
@@ -1075,7 +1074,7 @@ Retorne ESTRITAMENTE em JSON:
                         state.searchTerm = '';
                     }
                 } catch (e) {
-                    state.aiError = "Erro ao gerar receita. Verifique sua chave API se estiver rodando localmente.";
+                    state.aiError = "Erro: " + (e.message || "Falha ao contactar a IA.");
                     console.error(e);
                 } finally {
                     state.isGenerating = false;
