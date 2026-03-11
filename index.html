@@ -357,7 +357,7 @@
         const render = () => {
             const root = document.getElementById('app-root');
             
-            // Lógica para reter o foco do input (Correção do problema da barra de pesquisa)
+            // Lógica para reter o foco do input
             const activeEl = document.activeElement;
             const activeId = activeEl ? activeEl.id : null;
             let selectionStart = null, selectionEnd = null;
@@ -473,7 +473,6 @@
                                     <button onclick="window.appActions.setTab('ai')" class="text-purple-400 font-bold hover:underline cursor-pointer text-sm sm:text-base">Ir para o Gerador IA</button>
                                 </div>
                             ` : `
-                                <!-- SUBSTITUIÇÃO DA TABELA POR CARDS (MELHOR PARA MOBILE) -->
                                 <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                                     ${filteredRecipes.map(recipe => `
                                         <div onclick="window.appActions.openRecipe('${recipe.id}')" class="bg-neutral-900 border border-neutral-700 p-4 rounded-xl hover:border-neutral-500 cursor-pointer transition-all flex flex-col group ${recipe.isCustom ? 'ring-1 ring-purple-500/30' : ''}">
@@ -574,7 +573,7 @@
                                     
                                     <div class="bg-neutral-900/50 p-3 sm:p-4 rounded-xl border border-neutral-700 mt-4 relative z-10" id="ai-selected-ingredients-container">
                                         <div class="text-xs text-neutral-400 uppercase font-bold mb-3 flex justify-between">
-                                            <span>Selecionados ({${state.selectedAIIngredients.length}}/5)</span>
+                                            <span>Selecionados (${state.selectedAIIngredients.length}/5)</span>
                                             ${state.selectedAIIngredients.length > 0 ? `<span class="text-orange-400">~${totalKcal} kcal</span>` : ''}
                                         </div>
                                         <div class="min-h-[40px] sm:min-h-[50px] flex flex-wrap gap-2">
@@ -813,8 +812,9 @@
                                     </div>
                                 </div>
                                 <div>
+                                    <!-- AQUI ESTAVA O ERRO DE SEPARAÇÃO: O JS PRECISA DIVIDIR PELA QUEBRA DE LINHA REGEX -->
                                     <label class="text-[10px] sm:text-xs text-neutral-400 font-bold mb-1 block">Ingredientes (Uma linha para cada)</label>
-                                    <textarea rows="3" oninput="state.editingRecipeData.ingredients = this.value.split('\\n')" class="w-full bg-neutral-800 border border-neutral-700 p-2.5 sm:p-3 rounded-xl text-white outline-none focus:border-purple-500 custom-scrollbar text-sm">${rec.ingredients.join('\n')}</textarea>
+                                    <textarea rows="4" oninput="state.editingRecipeData.ingredients = this.value.split(/\\r?\\n/)" class="w-full bg-neutral-800 border border-neutral-700 p-2.5 sm:p-3 rounded-xl text-white outline-none focus:border-purple-500 custom-scrollbar text-sm">${rec.ingredients.join('\n')}</textarea>
                                 </div>
                                 <div>
                                     <label class="text-[10px] sm:text-xs text-neutral-400 font-bold mb-1 block">Modo de Preparo</label>
@@ -849,7 +849,7 @@
                                         ${getIconHTML('list', `w-4 h-4 ${rec.isCustom ? 'text-purple-400' : 'text-neutral-400'}`)} Ingredientes Necessários
                                     </h3>
                                     <ul class="grid grid-cols-1 sm:grid-cols-2 gap-1.5 sm:gap-2">
-                                        ${rec.ingredients.map(ing => `
+                                        ${rec.ingredients.filter(ing => ing.trim() !== '').map(ing => `
                                             <li class="bg-neutral-800 px-3 py-2 sm:py-2.5 rounded-lg text-xs sm:text-sm text-neutral-300 border border-neutral-700 flex items-center gap-2">
                                                 <div class="w-1.5 h-1.5 rounded-full flex-shrink-0 ${rec.isCustom ? 'bg-purple-500' : 'bg-orange-500'}"></div>
                                                 <span class="leading-tight">${ing}</span>
