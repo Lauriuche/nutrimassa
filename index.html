@@ -25,6 +25,9 @@
     <script type="module">
         // ============================================================================
         // CONFIGURAÇÃO SUPABASE
+        // Tabelas necessárias no Supabase: 
+        // 1. 'receitas'
+        // 2. 'ingredientes'
         // ============================================================================
         const SUPABASE_URL = 'https://ldtcbagibqcirjkhojya.supabase.co'; 
         const SUPABASE_ANON_KEY = 'sb_publishable_pmd588O0VhnGnl75EPn6bg_6KL3YUyo'; 
@@ -37,11 +40,16 @@
             isCloudEnabled = true;
         }
 
-        // Criar ID de utilizador local para a sessão
-        let localUserId = localStorage.getItem('nutrimassa_user_id');
-        if (!localUserId) {
-            localUserId = 'user_' + Math.random().toString(36).substr(2, 9);
-            localStorage.setItem('nutrimassa_user_id', localUserId);
+        // Criar ID de utilizador local para a sessão de forma segura
+        let localUserId = 'user_anon';
+        try {
+            localUserId = localStorage.getItem('nutrimassa_user_id');
+            if (!localUserId) {
+                localUserId = 'user_' + Math.random().toString(36).substr(2, 9);
+                localStorage.setItem('nutrimassa_user_id', localUserId);
+            }
+        } catch (e) {
+            console.warn("Armazenamento local bloqueado. A usar sessão temporária.");
         }
 
         // --- DADOS FIXOS ---
@@ -240,6 +248,7 @@
             searchTerm: '',
             isSearchFocused: false,
             isGenerating: false,
+            isFillingMacros: false,
             aiError: "",
             infoIngredient: null,
             pantrySearch: '',
@@ -247,18 +256,34 @@
             newIngredient: { name: '', category: 'energia', kcal: '', prot: '', carb: '', fat: '' }
         };
 
+        // --- FUNÇÃO PARA LIMPAR JSON DA IA (Evita crashes com Markdowns "```json") ---
+        const parseAIResponse = (text) => {
+            try {
+                // Remove blocos de markdown e espaços vazios
+                const cleanedText = text.replace(/```json/gi, '').replace(/```/g, '').trim();
+                return JSON.parse(cleanedText);
+            } catch (error) {
+                console.error("Falha ao processar o JSON da IA:", text);
+                throw new Error("A IA devolveu um formato inválido.");
+            }
+        };
+
         // --- UTILITÁRIOS ---
         const saveLocalData = () => {
             if (!isCloudEnabled) {
-                localStorage.setItem('nutrimassa_recipes', JSON.stringify(state.userRecipes));
-                localStorage.setItem('nutrimassa_pantry', JSON.stringify(state.userIngredients));
+                try {
+                    localStorage.setItem('nutrimassa_recipes', JSON.stringify(state.userRecipes));
+                    localStorage.setItem('nutrimassa_pantry', JSON.stringify(state.userIngredients));
+                } catch (e) {}
             }
         };
 
         const loadLocalData = () => {
             if (!isCloudEnabled) {
-                state.userRecipes = JSON.parse(localStorage.getItem('nutrimassa_recipes') || '[]');
-                state.userIngredients = JSON.parse(localStorage.getItem('nutrimassa_pantry') || '[]');
+                try {
+                    state.userRecipes = JSON.parse(localStorage.getItem('nutrimassa_recipes') || '[]');
+                    state.userIngredients = JSON.parse(localStorage.getItem('nutrimassa_pantry') || '[]');
+                } catch (e) {}
             }
         };
 
@@ -366,14 +391,12 @@
                 try {
                     selectionStart = activeEl.selectionStart;
                     selectionEnd = activeEl.selectionEnd;
-                } catch(e) {
-                    // Alguns inputs não suportam selectionStart/End
-                }
+                } catch(e) {}
             }
             
             const currentGoal = APP_GOALS.find(g => g.id === state.currentGoalId);
             const allRecipes = [...state.userRecipes, ...INITIAL_RECIPES];
-            const filteredRecipes = allRecipes.filter(r => r.goal === state.currentGoalId);
+            const filteredRecipes = allRecipes.filter(r => r.goal === state.currentGoalId && !r._isUnsaved); // Não mostrar receitas não salvas na grelha principal
 
             let syncStatus = isCloudEnabled ? '🟢 Supabase Sync' : '⚪ Armazenamento Local';
 
@@ -670,7 +693,7 @@
                 </div>`;
             }
 
-            // MODAL ADICIONAR INGREDIENTE
+            // MODAL ADICIONAR INGREDIENTE (Com IA)
             if (state.showAddModal) {
                 html += `
                 <div class="fixed inset-0 bg-black/80 flex items-center justify-center z-[70] p-4 backdrop-blur-sm">
@@ -687,12 +710,18 @@
                         <div class="p-4 sm:p-5 space-y-3 sm:space-y-4">
                             <div>
                                 <label class="text-[10px] sm:text-xs text-neutral-400 font-bold mb-1 block">Nome do Alimento</label>
-                                <input type="text" id="new-ing-name" value="${state.newIngredient.name}" oninput="state.newIngredient.name = this.value" placeholder="Ex: Pão Integral" class="w-full bg-neutral-800 border border-neutral-700 p-2.5 sm:p-3 rounded-xl text-white outline-none focus:border-orange-500 text-sm" />
+                                <div class="flex gap-2">
+                                    <input type="text" id="new-ing-name" value="${state.newIngredient.name}" oninput="window.appActions.updateNewIngredient('name', this.value)" placeholder="Ex: Pão Integral" class="w-full bg-neutral-800 border border-neutral-700 p-2.5 sm:p-3 rounded-xl text-white outline-none focus:border-orange-500 text-sm" />
+                                    <button onclick="window.appActions.fillIngredientMacros()" class="bg-purple-600 hover:bg-purple-500 text-white px-3 rounded-xl text-xs sm:text-sm font-bold flex items-center gap-1.5 transition-colors shadow-md shadow-purple-900/50 whitespace-nowrap">
+                                        ${state.isFillingMacros ? getIconHTML('loader-2', 'w-3 h-3 sm:w-4 sm:h-4 animate-spin') : getIconHTML('sparkles', 'w-3 h-3 sm:w-4 sm:h-4')} 
+                                        ${state.isFillingMacros ? 'A Pensar...' : 'Preencher IA ✨'}
+                                    </button>
+                                </div>
                             </div>
                             
                             <div>
                                 <label class="text-[10px] sm:text-xs text-neutral-400 font-bold mb-1 block">Categoria (Coluna)</label>
-                                <select id="new-ing-cat" onchange="state.newIngredient.category = this.value" class="w-full bg-neutral-800 border border-neutral-700 p-2.5 sm:p-3 rounded-xl text-white outline-none focus:border-orange-500 text-sm">
+                                <select id="new-ing-cat" onchange="window.appActions.updateNewIngredient('category', this.value)" class="w-full bg-neutral-800 border border-neutral-700 p-2.5 sm:p-3 rounded-xl text-white outline-none focus:border-orange-500 text-sm">
                                     <option value="energia" ${state.newIngredient.category === 'energia' ? 'selected' : ''}>Energia (Foco Carboidrato)</option>
                                     <option value="proteina" ${state.newIngredient.category === 'proteina' ? 'selected' : ''}>Proteína</option>
                                     <option value="suporte" ${state.newIngredient.category === 'suporte' ? 'selected' : ''}>Equilíbrio (Gordura/Fibras/Suporte)</option>
@@ -702,36 +731,37 @@
                             <div class="grid grid-cols-2 gap-2 sm:gap-3">
                                 <div>
                                     <label class="text-[9px] sm:text-[10px] text-orange-400 uppercase font-bold mb-1 flex items-center gap-1">${getIconHTML('flame', 'w-3 h-3')} Calorias</label>
-                                    <input type="number" oninput="state.newIngredient.kcal = this.value" value="${state.newIngredient.kcal}" class="w-full bg-neutral-800 border border-neutral-700 p-2 sm:p-2.5 rounded-xl text-white outline-none focus:border-orange-500 text-sm" />
+                                    <input type="number" oninput="window.appActions.updateNewIngredient('kcal', this.value)" value="${state.newIngredient.kcal}" class="w-full bg-neutral-800 border border-neutral-700 p-2 sm:p-2.5 rounded-xl text-white outline-none focus:border-orange-500 text-sm" />
                                 </div>
                                 <div>
                                     <label class="text-[9px] sm:text-[10px] text-blue-400 uppercase font-bold mb-1 flex items-center gap-1">${getIconHTML('dumbbell', 'w-3 h-3')} Prot. (g)</label>
-                                    <input type="number" oninput="state.newIngredient.prot = this.value" value="${state.newIngredient.prot}" class="w-full bg-neutral-800 border border-neutral-700 p-2 sm:p-2.5 rounded-xl text-white outline-none focus:border-orange-500 text-sm" />
+                                    <input type="number" oninput="window.appActions.updateNewIngredient('prot', this.value)" value="${state.newIngredient.prot}" class="w-full bg-neutral-800 border border-neutral-700 p-2 sm:p-2.5 rounded-xl text-white outline-none focus:border-orange-500 text-sm" />
                                 </div>
                                 <div>
                                     <label class="text-[9px] sm:text-[10px] text-green-400 uppercase font-bold mb-1 flex items-center gap-1">${getIconHTML('activity', 'w-3 h-3')} Carbo (g)</label>
-                                    <input type="number" oninput="state.newIngredient.carb = this.value" value="${state.newIngredient.carb}" class="w-full bg-neutral-800 border border-neutral-700 p-2 sm:p-2.5 rounded-xl text-white outline-none focus:border-orange-500 text-sm" />
+                                    <input type="number" oninput="window.appActions.updateNewIngredient('carb', this.value)" value="${state.newIngredient.carb}" class="w-full bg-neutral-800 border border-neutral-700 p-2 sm:p-2.5 rounded-xl text-white outline-none focus:border-orange-500 text-sm" />
                                 </div>
                                 <div>
                                     <label class="text-[9px] sm:text-[10px] text-yellow-400 uppercase font-bold mb-1 flex items-center gap-1">${getIconHTML('droplets', 'w-3 h-3')} Gordura (g)</label>
-                                    <input type="number" oninput="state.newIngredient.fat = this.value" value="${state.newIngredient.fat}" class="w-full bg-neutral-800 border border-neutral-700 p-2 sm:p-2.5 rounded-xl text-white outline-none focus:border-orange-500 text-sm" />
+                                    <input type="number" oninput="window.appActions.updateNewIngredient('fat', this.value)" value="${state.newIngredient.fat}" class="w-full bg-neutral-800 border border-neutral-700 p-2 sm:p-2.5 rounded-xl text-white outline-none focus:border-orange-500 text-sm" />
                                 </div>
                             </div>
                         </div>
 
                         <div class="p-4 sm:p-5 border-t border-neutral-800 bg-neutral-850 flex justify-end">
-                            <button onclick="window.appActions.saveIngredient()" class="bg-orange-500 hover:bg-orange-600 px-5 py-2 sm:py-2.5 rounded-lg text-white font-bold transition-colors w-full text-sm sm:text-base">
-                                Guardar Ingrediente
+                            <button onclick="window.appActions.saveIngredient()" class="bg-orange-500 hover:bg-orange-600 px-5 py-2 sm:py-2.5 rounded-lg text-white font-bold transition-colors w-full text-sm sm:text-base flex justify-center items-center gap-2">
+                                ${getIconHTML('save', 'w-4 h-4')} Guardar Ingrediente
                             </button>
                         </div>
                     </div>
                 </div>`;
             }
 
-            // RECIPE MODAL (VISUALIZAÇÃO / EDIÇÃO) -> FOCO NA RESPONSIVIDADE
+            // RECIPE MODAL (VISUALIZAÇÃO / EDIÇÃO / SALVAR NOVA)
             if (state.selectedRecipe) {
                 const isEditing = !!state.editingRecipeData;
                 const rec = isEditing ? state.editingRecipeData : state.selectedRecipe;
+                const isUnsaved = rec._isUnsaved;
 
                 html += `
                 <div class="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-3 sm:p-4 backdrop-blur-sm">
@@ -743,12 +773,18 @@
                                 <div class="flex items-center gap-1.5 sm:gap-2 mb-1">
                                     ${getRecipeIcon(rec.icon, 'w-4 h-4 sm:w-5 sm:h-5')}
                                     <span class="text-[10px] sm:text-xs font-bold uppercase tracking-wider text-neutral-400">${rec.type}</span>
-                                    ${rec.isCustom ? `<span class="ml-1 sm:ml-2 bg-purple-600/20 border border-purple-500/30 text-purple-300 text-[9px] sm:text-[10px] px-1.5 sm:px-2 py-0.5 rounded-full uppercase tracking-wider font-bold">IA</span>` : ''}
+                                    ${rec.isCustom && !isUnsaved ? `<span class="ml-1 sm:ml-2 bg-purple-600/20 border border-purple-500/30 text-purple-300 text-[9px] sm:text-[10px] px-1.5 sm:px-2 py-0.5 rounded-full uppercase tracking-wider font-bold">IA</span>` : ''}
+                                    ${isUnsaved ? `<span class="ml-1 sm:ml-2 bg-yellow-500/20 border border-yellow-500/30 text-yellow-400 text-[9px] sm:text-[10px] px-1.5 sm:px-2 py-0.5 rounded-full uppercase tracking-wider font-bold animate-pulse">Nova!</span>` : ''}
                                 </div>
                                 <h2 class="text-xl sm:text-2xl font-bold text-white leading-tight">${rec.name}</h2>
                             </div>
                             <div class="flex items-center gap-1.5 sm:gap-2 shrink-0">
-                                ${!isEditing ? `
+                                ${isUnsaved ? `
+                                    <button onclick="window.appActions.closeRecipe()" class="px-3 py-1.5 sm:px-4 sm:py-2 bg-neutral-700 hover:bg-neutral-600 rounded-lg text-white text-xs sm:text-sm transition-colors">Descartar</button>
+                                    <button onclick="window.appActions.saveGeneratedRecipe()" class="px-3 py-1.5 sm:px-4 sm:py-2 bg-purple-600 hover:bg-purple-500 rounded-lg text-white text-xs sm:text-sm flex items-center gap-1.5 sm:gap-2 transition-colors font-bold shadow-lg shadow-purple-900/50">
+                                        ${getIconHTML('save', 'w-3 h-3 sm:w-4 sm:h-4')} Salvar Receita
+                                    </button>
+                                ` : !isEditing ? `
                                     ${rec.isCustom ? `
                                         <button onclick="window.appActions.startEditRecipe()" class="p-1.5 sm:p-2 bg-neutral-800 hover:bg-blue-600/20 hover:text-blue-400 rounded-full text-neutral-400 transition-colors" title="Editar Receita">
                                             ${getIconHTML('edit-2', 'w-4 h-4')}
@@ -763,7 +799,7 @@
                                 ` : `
                                     <button onclick="window.appActions.cancelEditRecipe()" class="px-3 py-1.5 sm:px-4 sm:py-2 bg-neutral-700 hover:bg-neutral-600 rounded-lg text-white text-xs sm:text-sm transition-colors">Cancelar</button>
                                     <button onclick="window.appActions.saveRecipeEdit()" class="px-3 py-1.5 sm:px-4 sm:py-2 bg-green-600 hover:bg-green-500 rounded-lg text-white text-xs sm:text-sm flex items-center gap-1.5 sm:gap-2 transition-colors">
-                                        ${getIconHTML('save', 'w-3 h-3 sm:w-4 sm:h-4')} Guardar
+                                        ${getIconHTML('save', 'w-3 h-3 sm:w-4 sm:h-4')} Atualizar
                                     </button>
                                 `}
                             </div>
@@ -775,11 +811,11 @@
                                 <div class="grid grid-cols-1 md:grid-cols-2 gap-3 sm:gap-4">
                                     <div>
                                         <label class="text-[10px] sm:text-xs text-neutral-400 font-bold mb-1 block">Nome da Receita</label>
-                                        <input type="text" oninput="state.editingRecipeData.name = this.value" value="${rec.name}" class="w-full bg-neutral-800 border border-neutral-700 p-2.5 sm:p-3 rounded-xl text-white outline-none focus:border-purple-500 text-sm" />
+                                        <input type="text" oninput="window.appActions.updateEditingRecipe('name', this.value)" value="${rec.name}" class="w-full bg-neutral-800 border border-neutral-700 p-2.5 sm:p-3 rounded-xl text-white outline-none focus:border-purple-500 text-sm" />
                                     </div>
                                     <div>
                                         <label class="text-[10px] sm:text-xs text-neutral-400 font-bold mb-1 block">Objetivo Associado</label>
-                                        <select onchange="state.editingRecipeData.goal = this.value" class="w-full bg-neutral-800 border border-neutral-700 p-2.5 sm:p-3 rounded-xl text-white outline-none focus:border-purple-500 text-sm">
+                                        <select onchange="window.appActions.updateEditingRecipe('goal', this.value)" class="w-full bg-neutral-800 border border-neutral-700 p-2.5 sm:p-3 rounded-xl text-white outline-none focus:border-purple-500 text-sm">
                                             <option value="massa" ${rec.goal === 'massa' ? 'selected' : ''}>Ganho de Massa</option>
                                             <option value="perda" ${rec.goal === 'perda' ? 'selected' : ''}>Perda de Peso</option>
                                             <option value="recomp" ${rec.goal === 'recomp' ? 'selected' : ''}>Ganho + Perda</option>
@@ -788,36 +824,36 @@
                                 </div>
                                 <div>
                                     <label class="text-[10px] sm:text-xs text-neutral-400 font-bold mb-1 block">Categoria Curta</label>
-                                    <input type="text" oninput="state.editingRecipeData.type = this.value" value="${rec.type}" class="w-full bg-neutral-800 border border-neutral-700 p-2.5 sm:p-3 rounded-xl text-white outline-none focus:border-purple-500 text-sm" />
+                                    <input type="text" oninput="window.appActions.updateEditingRecipe('type', this.value)" value="${rec.type}" class="w-full bg-neutral-800 border border-neutral-700 p-2.5 sm:p-3 rounded-xl text-white outline-none focus:border-purple-500 text-sm" />
                                 </div>
                                 <div>
                                     <label class="text-[10px] sm:text-xs text-neutral-400 font-bold mb-2 block">Macros</label>
                                     <div class="grid grid-cols-2 sm:grid-cols-4 gap-2">
                                         <div class="bg-neutral-800 p-2 rounded-xl border border-neutral-700 text-center">
                                             <span class="text-[9px] sm:text-[10px] text-orange-400 block mb-1 uppercase">Calorias</span>
-                                            <input type="number" oninput="state.editingRecipeData.macros.kcal = parseInt(this.value)||0" value="${rec.macros.kcal}" class="w-full bg-transparent text-white font-bold text-center outline-none text-sm sm:text-base" />
+                                            <input type="number" oninput="window.appActions.updateEditingRecipeMacro('kcal', this.value)" value="${rec.macros.kcal}" class="w-full bg-transparent text-white font-bold text-center outline-none text-sm sm:text-base" />
                                         </div>
                                         <div class="bg-neutral-800 p-2 rounded-xl border border-neutral-700 text-center">
                                             <span class="text-[9px] sm:text-[10px] text-blue-400 block mb-1 uppercase">Proteína</span>
-                                            <input type="number" oninput="state.editingRecipeData.macros.prot = parseInt(this.value)||0" value="${rec.macros.prot}" class="w-full bg-transparent text-white font-bold text-center outline-none text-sm sm:text-base" />
+                                            <input type="number" oninput="window.appActions.updateEditingRecipeMacro('prot', this.value)" value="${rec.macros.prot}" class="w-full bg-transparent text-white font-bold text-center outline-none text-sm sm:text-base" />
                                         </div>
                                         <div class="bg-neutral-800 p-2 rounded-xl border border-neutral-700 text-center">
                                             <span class="text-[9px] sm:text-[10px] text-green-400 block mb-1 uppercase">Carbo</span>
-                                            <input type="number" oninput="state.editingRecipeData.macros.carb = parseInt(this.value)||0" value="${rec.macros.carb}" class="w-full bg-transparent text-white font-bold text-center outline-none text-sm sm:text-base" />
+                                            <input type="number" oninput="window.appActions.updateEditingRecipeMacro('carb', this.value)" value="${rec.macros.carb}" class="w-full bg-transparent text-white font-bold text-center outline-none text-sm sm:text-base" />
                                         </div>
                                         <div class="bg-neutral-800 p-2 rounded-xl border border-neutral-700 text-center">
                                             <span class="text-[9px] sm:text-[10px] text-yellow-400 block mb-1 uppercase">Gordura</span>
-                                            <input type="number" oninput="state.editingRecipeData.macros.fat = parseInt(this.value)||0" value="${rec.macros.fat}" class="w-full bg-transparent text-white font-bold text-center outline-none text-sm sm:text-base" />
+                                            <input type="number" oninput="window.appActions.updateEditingRecipeMacro('fat', this.value)" value="${rec.macros.fat}" class="w-full bg-transparent text-white font-bold text-center outline-none text-sm sm:text-base" />
                                         </div>
                                     </div>
                                 </div>
                                 <div>
                                     <label class="text-[10px] sm:text-xs text-neutral-400 font-bold mb-1 block">Ingredientes (Uma linha para cada)</label>
-                                    <textarea rows="4" oninput="state.editingRecipeData.ingredients = this.value.split(/\\r?\\n/)" class="w-full bg-neutral-800 border border-neutral-700 p-2.5 sm:p-3 rounded-xl text-white outline-none focus:border-purple-500 custom-scrollbar text-sm">${rec.ingredients.join('\n')}</textarea>
+                                    <textarea rows="4" oninput="window.appActions.updateEditingRecipeIngredients(this.value)" class="w-full bg-neutral-800 border border-neutral-700 p-2.5 sm:p-3 rounded-xl text-white outline-none focus:border-purple-500 custom-scrollbar text-sm">${rec.ingredients.join('\n')}</textarea>
                                 </div>
                                 <div>
                                     <label class="text-[10px] sm:text-xs text-neutral-400 font-bold mb-1 block">Modo de Preparo</label>
-                                    <textarea rows="4" oninput="state.editingRecipeData.instructions = this.value" class="w-full bg-neutral-800 border border-neutral-700 p-2.5 sm:p-3 rounded-xl text-white outline-none focus:border-purple-500 custom-scrollbar text-sm">${rec.instructions}</textarea>
+                                    <textarea rows="4" oninput="window.appActions.updateEditingRecipe('instructions', this.value)" class="w-full bg-neutral-800 border border-neutral-700 p-2.5 sm:p-3 rounded-xl text-white outline-none focus:border-purple-500 custom-scrollbar text-sm">${rec.instructions}</textarea>
                                 </div>
                             </div>
                         ` : `
@@ -875,9 +911,18 @@
             return html;
         };
 
+        // --- EXPONDO O ESTADO PARA O ESCOPO GLOBAL ---
+        window.appState = state;
+
         // --- AÇÕES GLOBAIS (Acessíveis pelo HTML inline) ---
         window.appActions = {
-            setTab: (tab) => { state.activeTab = tab; render(); },
+            setTab: (tab) => { 
+                state.activeTab = tab; 
+                state.selectedRecipe = null; // Fecha modais ao mudar de aba
+                state.editingRecipeData = null;
+                state.showAddModal = false;
+                render(); 
+            },
             setGoal: (goal) => { state.currentGoalId = goal; render(); },
             setPantrySearch: (val) => { 
                 state.pantrySearch = val; 
@@ -902,6 +947,20 @@
                     container.innerHTML = renderAISearchDropdown();
                     if (window.lucide) window.lucide.createIcons();
                 }
+            },
+            
+            // FUNÇÕES DE ATUALIZAÇÃO SEGURA (Evita ReferenceError)
+            updateNewIngredient: (field, value) => {
+                state.newIngredient[field] = value;
+            },
+            updateEditingRecipe: (field, value) => {
+                state.editingRecipeData[field] = value;
+            },
+            updateEditingRecipeMacro: (field, value) => {
+                state.editingRecipeData.macros[field] = parseInt(value) || 0;
+            },
+            updateEditingRecipeIngredients: (value) => {
+                state.editingRecipeData.ingredients = value.split(/\r?\n/);
             },
             
             openInfo: (itemStr) => { state.infoIngredient = JSON.parse(decodeURIComponent(itemStr)); render(); },
@@ -936,6 +995,76 @@
                 render();
             },
 
+            // PREENCHIMENTO DE MACROS COM IA NA DESPENSA
+            fillIngredientMacros: async () => {
+                if (!state.newIngredient.name || state.newIngredient.name.trim() === '') {
+                    alert("Digite o nome do alimento primeiro.");
+                    return;
+                }
+                
+                state.isFillingMacros = true;
+                render();
+
+                const apiKey = "AIzaSyBbnfgbDO5hPpolmUdeQc9GCFlSRzHSfhw"; 
+                // Usando o modelo genérico gemini-pro que é mais estável
+                const model = "gemini-pro"; 
+
+                const prompt = `Atue como nutricionista. Diga-me os macronutrientes (em gramas) e calorias para 100g de "${state.newIngredient.name}".
+Categorize como: "energia" (se a base for carboidrato), "proteina" (se for focado em proteína), ou "suporte" (se for focado em gordura/fibras).
+Responda ESTRITAMENTE em formato JSON puro, sem formatacao markdown:
+{"kcal": 100, "prot": 10, "carb": 20, "fat": 5, "category": "energia"}`;
+
+                try {
+                    const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`, {
+                        method: 'POST', headers: { 'Content-Type': 'application/json' }, 
+                        body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] })
+                    });
+                    const json = await res.json();
+                    
+                    if (!res.ok) {
+                        // Faz um fallback para gemini-1.5-flash se gemini-pro falhar
+                        console.warn("gemini-pro falhou, a tentar gemini-1.5-flash...");
+                        const res2 = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`, {
+                             method: 'POST', headers: { 'Content-Type': 'application/json' }, 
+                             body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] })
+                        });
+                        const json2 = await res2.json();
+                        if(!res2.ok) throw new Error(json2.error?.message || "Erro na API.");
+                        
+                        const aiText = json2?.candidates?.[0]?.content?.parts?.[0]?.text;
+                        if (aiText) {
+                            const data = parseAIResponse(aiText);
+                            state.newIngredient.kcal = data.kcal || 0;
+                            state.newIngredient.prot = data.prot || 0;
+                            state.newIngredient.carb = data.carb || 0;
+                            state.newIngredient.fat = data.fat || 0;
+                            if (['energia', 'proteina', 'suporte'].includes(data.category)) {
+                                state.newIngredient.category = data.category;
+                            }
+                        }
+                        return;
+                    }
+
+                    const aiText = json?.candidates?.[0]?.content?.parts?.[0]?.text;
+                    if (aiText) {
+                        const data = parseAIResponse(aiText);
+                        state.newIngredient.kcal = data.kcal || 0;
+                        state.newIngredient.prot = data.prot || 0;
+                        state.newIngredient.carb = data.carb || 0;
+                        state.newIngredient.fat = data.fat || 0;
+                        if (['energia', 'proteina', 'suporte'].includes(data.category)) {
+                            state.newIngredient.category = data.category;
+                        }
+                    }
+                } catch (e) {
+                    console.error("Falha ao preencher macros:", e);
+                    alert("Erro ao consultar a IA. Tente preencher manualmente.");
+                } finally {
+                    state.isFillingMacros = false;
+                    render();
+                }
+            },
+
             saveIngredient: async () => {
                 if(!state.newIngredient.name) return;
                 const newIngId = Date.now().toString();
@@ -955,12 +1084,12 @@
 
                 if (isCloudEnabled && supabaseClient) {
                     try {
-                        const { error } = await supabaseClient.from('pantry').insert([newIngData]);
+                        const { error } = await supabaseClient.from('ingredientes').insert([newIngData]);
                         if (error) throw error;
                         state.userIngredients.unshift(newIngData);
                     } catch (err) { 
                         console.error("Erro ao guardar no Supabase:", err);
-                        alert("Certifique-se que configurou o Supabase e as tabelas estão corretas!");
+                        alert("Erro! Verifique se a tabela 'ingredientes' foi criada corretamente no Supabase.");
                     }
                 } else {
                     // MODO LOCAL
@@ -976,7 +1105,7 @@
             deleteRecipe: async (id) => {
                 if (isCloudEnabled && supabaseClient) {
                     try {
-                        await supabaseClient.from('recipes').delete().eq('id', id);
+                        await supabaseClient.from('receitas').delete().eq('id', id);
                         state.userRecipes = state.userRecipes.filter(r => r.id !== id);
                     } catch(err) { console.error(err); }
                 } else {
@@ -992,16 +1121,29 @@
             saveRecipeEdit: async () => {
                 if (!state.editingRecipeData.isCustom) return;
 
+                // Remover flag temporária de não-salvo se existir
+                delete state.editingRecipeData._isUnsaved;
+                // Limpar array de ingredientes de strings vazias
+                state.editingRecipeData.ingredients = state.editingRecipeData.ingredients.filter(ing => ing.trim() !== '');
+
                 if (isCloudEnabled && supabaseClient) {
                     try {
-                        await supabaseClient.from('recipes').upsert(state.editingRecipeData);
+                        await supabaseClient.from('receitas').upsert(state.editingRecipeData);
                         const idx = state.userRecipes.findIndex(r => r.id === state.editingRecipeData.id);
-                        if (idx !== -1) state.userRecipes[idx] = state.editingRecipeData;
+                        if (idx !== -1) {
+                            state.userRecipes[idx] = state.editingRecipeData;
+                        } else {
+                            state.userRecipes.unshift(state.editingRecipeData);
+                        }
                     } catch (err) { console.error(err); }
                 } else {
                     // MODO LOCAL
                     const idx = state.userRecipes.findIndex(r => r.id === state.editingRecipeData.id);
-                    if (idx !== -1) state.userRecipes[idx] = state.editingRecipeData;
+                    if (idx !== -1) {
+                        state.userRecipes[idx] = state.editingRecipeData;
+                    } else {
+                        state.userRecipes.unshift(state.editingRecipeData);
+                    }
                     saveLocalData();
                 }
 
@@ -1010,11 +1152,33 @@
                 render();
             },
 
+            // SALVAR RECEITA QUE ACABOU DE SER GERADA PELA IA
+            saveGeneratedRecipe: async () => {
+                const recToSave = JSON.parse(JSON.stringify(state.selectedRecipe));
+                delete recToSave._isUnsaved; // Retira o bloqueio de "Não salvo"
+
+                if (isCloudEnabled && supabaseClient) {
+                    try {
+                        await supabaseClient.from('receitas').insert([recToSave]);
+                        state.userRecipes.unshift(recToSave);
+                    } catch(e) {
+                        console.error("Erro ao guardar receita no Supabase:", e);
+                    }
+                } else {
+                    state.userRecipes.unshift(recToSave);
+                    saveLocalData();
+                }
+
+                state.selectedRecipe = recToSave; // Atualiza o ecrã com a versão já gravada
+                render();
+            },
+
             generateRecipe: async () => {
                 if (state.selectedAIIngredients.length < 2) return;
                 
                 // === CHAVE API DO GEMINI ===
                 const apiKey = "AIzaSyBbnfgbDO5hPpolmUdeQc9GCFlSRzHSfhw"; 
+                const model = "gemini-pro"; 
 
                 state.isGenerating = true;
                 state.aiError = "";
@@ -1025,7 +1189,7 @@
 Crie uma receita utilizando OBRIGATORIAMENTE os seguintes ingredientes: ${ingredientNames}.
 Analise os macros e decida se é melhor para: "massa", "perda" ou "recomp".
 Regra importante de formatação: Se a quantidade de um ingrediente for livre, coloque o nome do ingrediente primeiro, seguido de "a gosto" (exemplo: "Canela a gosto").
-Retorne ESTRITAMENTE em JSON:
+Retorne ESTRITAMENTE em JSON puro, sem formatacao markdown:
 {
   "name": "Nome criativo", "goal": "massa", "type": "Categoria curta",
   "macros": {"kcal": 100, "carb": 10, "prot": 10, "fat": 10},
@@ -1033,39 +1197,35 @@ Retorne ESTRITAMENTE em JSON:
   "instructions": "Passo a passo em um parágrafo."
 }`;
 
-                const payload = {
-                    contents: [{ parts: [{ text: prompt }] }],
-                    generationConfig: { responseMimeType: "application/json" }
-                };
-
                 try {
-                    const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`, {
-                        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload)
+                    let res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`, {
+                        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] })
                     });
-                    const json = await res.json();
+                    
+                    if (!res.ok) {
+                         // Fallback para o gemini-1.5-flash
+                         res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`, {
+                             method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] })
+                         });
+                    }
 
+                    const json = await res.json();
                     if (!res.ok) throw new Error(json.error?.message || "Erro na API do Gemini.");
 
                     const aiText = json?.candidates?.[0]?.content?.parts?.[0]?.text;
                     
                     if (aiText) {
-                        const aiData = JSON.parse(aiText);
+                        const aiData = parseAIResponse(aiText); // Usa o parser com limpeza anti-crash
                         const validGoal = ['massa', 'perda', 'recomp'].includes(aiData.goal) ? aiData.goal : 'recomp';
+                        
+                        // Receita é gerada, mas NÃO É SALVA IMEDIATAMENTE (Tem flag _isUnsaved)
                         const newRecipe = {
-                            id: Date.now().toString(), name: aiData.name + " ✨", goal: validGoal,
+                            id: Date.now().toString(), name: aiData.name, goal: validGoal,
                             type: aiData.type, icon: "Sparkles", macros: aiData.macros,
-                            ingredients: aiData.ingredients, instructions: aiData.instructions, isCustom: true,
-                            user_id: state.user.uid
+                            ingredients: aiData.ingredients, instructions: aiData.instructions, 
+                            isCustom: true, user_id: state.user.uid,
+                            _isUnsaved: true // Esta flag diz ao Modal para mostrar o botão "Salvar Receita"
                         };
-
-                        if (isCloudEnabled && supabaseClient) {
-                            await supabaseClient.from('recipes').insert([newRecipe]);
-                            state.userRecipes.unshift(newRecipe);
-                        } else {
-                            // MODO LOCAL
-                            state.userRecipes.unshift(newRecipe);
-                            saveLocalData();
-                        }
                         
                         state.selectedRecipe = newRecipe;
                         state.activeTab = 'recipes';
@@ -1088,9 +1248,9 @@ Retorne ESTRITAMENTE em JSON:
             loadLocalData();
 
             if (isCloudEnabled && supabaseClient) {
-                // Carregar Receitas do Supabase
+                // Carregar Receitas do Supabase 
                 const { data: recipesData } = await supabaseClient
-                    .from('recipes')
+                    .from('receitas')
                     .select('*')
                     .eq('user_id', state.user.uid)
                     .order('id', { ascending: false });
@@ -1099,7 +1259,7 @@ Retorne ESTRITAMENTE em JSON:
 
                 // Carregar Despensa do Supabase
                 const { data: pantryData } = await supabaseClient
-                    .from('pantry')
+                    .from('ingredientes')
                     .select('*')
                     .eq('user_id', state.user.uid)
                     .order('id', { ascending: false });
