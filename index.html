@@ -26,12 +26,24 @@
         import { getAuth, signInWithCustomToken, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
         import { getFirestore, collection, doc, setDoc, deleteDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
-        // --- CONFIGURAÇÃO DA BASE DE DADOS ---
-        const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {};
-        const app = initializeApp(firebaseConfig);
-        const auth = getAuth(app);
-        const db = getFirestore(app);
+        // --- CONFIGURAÇÃO SEGURA DA BASE DE DADOS ---
+        let isCloudEnabled = false;
+        let app, auth, db;
         const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+
+        try {
+            if (typeof __firebase_config !== 'undefined' && __firebase_config) {
+                const firebaseConfig = JSON.parse(__firebase_config);
+                if (Object.keys(firebaseConfig).length > 0) {
+                    app = initializeApp(firebaseConfig);
+                    auth = getAuth(app);
+                    db = getFirestore(app);
+                    isCloudEnabled = true;
+                }
+            }
+        } catch (e) {
+            console.warn("Iniciando em Modo Local (Cloud Sync desativado).");
+        }
 
         // --- DADOS FIXOS ---
         const INGREDIENTS = {
@@ -154,6 +166,8 @@
             const allRecipes = [...state.userRecipes, ...INITIAL_RECIPES];
             const filteredRecipes = allRecipes.filter(r => r.goal === state.currentGoalId);
 
+            let syncStatus = isCloudEnabled ? (state.user ? '🟢 Cloud' : '🟡 Conectando...') : '⚪ Local';
+
             let html = `
                 <!-- HEADER & GOAL SELECTOR -->
                 <header class="bg-neutral-800 border-b border-neutral-700 sticky top-0 z-40 shadow-lg">
@@ -166,7 +180,7 @@
                                 <div>
                                     <h1 class="text-2xl font-bold text-white tracking-wide">NutriMassa <span class="${currentGoal.color}">PRO</span></h1>
                                     <p class="text-xs text-neutral-400 tracking-wider uppercase font-bold">
-                                        Nutrição de Elite <span class="text-neutral-500 font-normal">| Cloud Sync ${state.user ? '🟢' : '⚪'}</span>
+                                        Nutrição de Elite <span class="text-neutral-500 font-normal">| ${syncStatus}</span>
                                     </p>
                                 </div>
                             </div>
@@ -209,7 +223,9 @@
             `;
 
             root.innerHTML = html;
-            lucide.createIcons(); // Recarregar ícones após atualizar o DOM
+            if (window.lucide) {
+                window.lucide.createIcons(); // Recarregar ícones
+            }
         };
 
         const renderActiveTab = (filteredRecipes, currentGoal) => {
@@ -530,7 +546,7 @@
 
                         <div class="p-5 border-t border-neutral-800 bg-neutral-850 flex justify-end">
                             <button onclick="window.appActions.saveIngredient()" class="bg-orange-500 hover:bg-orange-600 px-5 py-2.5 rounded-lg text-white font-bold transition-colors w-full">
-                                Guardar na Cloud
+                                Salvar Ingrediente
                             </button>
                         </div>
                     </div>
@@ -718,7 +734,7 @@
             },
 
             saveIngredient: async () => {
-                if(!state.newIngredient.name || !state.user) return;
+                if(!state.newIngredient.name) return;
                 const newIngId = Date.now().toString();
                 const newIngData = {
                     id: newIngId,
@@ -732,9 +748,15 @@
                     },
                     isCustom: true
                 };
-                try {
-                    await setDoc(doc(db, 'artifacts', appId, 'users', state.user.uid, 'pantry', newIngId), newIngData);
-                } catch (err) { console.error("Erro cloud:", err); }
+
+                if (isCloudEnabled && state.user) {
+                    try {
+                        await setDoc(doc(db, 'artifacts', appId, 'users', state.user.uid, 'pantry', newIngId), newIngData);
+                    } catch (err) { console.error("Erro cloud:", err); }
+                } else {
+                    // MODO LOCAL
+                    state.userIngredients.unshift(newIngData);
+                }
                 
                 state.showAddModal = false;
                 state.newIngredient = { name: '', category: 'energia', kcal: '', prot: '', carb: '', fat: '' };
@@ -742,20 +764,32 @@
             },
 
             deleteRecipe: async (id) => {
-                if (!state.user) return;
-                try {
-                    await deleteDoc(doc(db, 'artifacts', appId, 'users', state.user.uid, 'recipes', id));
-                } catch(err) { console.error(err); }
+                if (isCloudEnabled && state.user) {
+                    try {
+                        await deleteDoc(doc(db, 'artifacts', appId, 'users', state.user.uid, 'recipes', id));
+                    } catch(err) { console.error(err); }
+                } else {
+                    // MODO LOCAL
+                    state.userRecipes = state.userRecipes.filter(r => r.id !== id);
+                }
                 state.selectedRecipe = null;
                 state.editingRecipeData = null;
                 render();
             },
 
             saveRecipeEdit: async () => {
-                if (!state.user || !state.editingRecipeData.isCustom) return;
-                try {
-                    await setDoc(doc(db, 'artifacts', appId, 'users', state.user.uid, 'recipes', state.editingRecipeData.id), state.editingRecipeData);
-                } catch (err) { console.error(err); }
+                if (!state.editingRecipeData.isCustom) return;
+
+                if (isCloudEnabled && state.user) {
+                    try {
+                        await setDoc(doc(db, 'artifacts', appId, 'users', state.user.uid, 'recipes', state.editingRecipeData.id), state.editingRecipeData);
+                    } catch (err) { console.error(err); }
+                } else {
+                    // MODO LOCAL
+                    const idx = state.userRecipes.findIndex(r => r.id === state.editingRecipeData.id);
+                    if (idx !== -1) state.userRecipes[idx] = state.editingRecipeData;
+                }
+
                 state.selectedRecipe = state.editingRecipeData;
                 state.editingRecipeData = null;
                 render();
@@ -763,6 +797,11 @@
 
             generateRecipe: async () => {
                 if (state.selectedAIIngredients.length < 2) return;
+                
+                // === CHAVE API DO GEMINI ===
+                // Para usar fora desta plataforma, coloque a sua chave do Google Gemini Studio aqui
+                const apiKey = ""; 
+
                 state.isGenerating = true;
                 state.aiError = "";
                 render();
@@ -771,6 +810,7 @@
                 const prompt = `Atue como um nutricionista esportivo de elite.
 Crie uma receita utilizando OBRIGATORIAMENTE os seguintes ingredientes: ${ingredientNames}.
 Analise os macros e decida se é melhor para: "massa", "perda" ou "recomp".
+Regra importante de formatação: Se a quantidade de um ingrediente for livre, coloque o nome do ingrediente primeiro, seguido de "a gosto" (exemplo: "Canela a gosto").
 Retorne ESTRITAMENTE em JSON:
 {
   "name": "Nome criativo", "goal": "massa", "type": "Categoria curta",
@@ -785,10 +825,13 @@ Retorne ESTRITAMENTE em JSON:
                 };
 
                 try {
-                    const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=`, {
+                    const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`, {
                         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload)
                     });
                     const json = await res.json();
+
+                    if (!res.ok) throw new Error(json.error?.message || "Erro na API do Gemini.");
+
                     const aiText = json?.candidates?.[0]?.content?.parts?.[0]?.text;
                     
                     if (aiText) {
@@ -800,7 +843,12 @@ Retorne ESTRITAMENTE em JSON:
                             ingredients: aiData.ingredients, instructions: aiData.instructions, isCustom: true
                         };
 
-                        if (state.user) await setDoc(doc(db, 'artifacts', appId, 'users', state.user.uid, 'recipes', newRecipe.id), newRecipe);
+                        if (isCloudEnabled && state.user) {
+                            await setDoc(doc(db, 'artifacts', appId, 'users', state.user.uid, 'recipes', newRecipe.id), newRecipe);
+                        } else {
+                            // MODO LOCAL
+                            state.userRecipes.unshift(newRecipe);
+                        }
                         
                         state.selectedRecipe = newRecipe;
                         state.activeTab = 'recipes';
@@ -809,7 +857,8 @@ Retorne ESTRITAMENTE em JSON:
                         state.searchTerm = '';
                     }
                 } catch (e) {
-                    state.aiError = "Erro ao gerar a receita.";
+                    state.aiError = "Erro ao gerar receita. Verifique sua chave API se estiver rodando localmente.";
+                    console.error(e);
                 } finally {
                     state.isGenerating = false;
                     render();
@@ -819,30 +868,33 @@ Retorne ESTRITAMENTE em JSON:
 
         // --- INICIALIZAÇÃO ---
         const init = async () => {
-            try {
-                if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
-                    await signInWithCustomToken(auth, __initial_auth_token);
-                } else {
-                    await signInAnonymously(auth);
-                }
-            } catch (err) {}
+            if (isCloudEnabled) {
+                try {
+                    if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+                        await signInWithCustomToken(auth, __initial_auth_token);
+                    } else {
+                        await signInAnonymously(auth);
+                    }
+                } catch (err) {}
 
-            onAuthStateChanged(auth, (user) => {
-                state.user = user;
-                if (user) {
-                    onSnapshot(collection(db, 'artifacts', appId, 'users', user.uid, 'recipes'), (snap) => {
-                        state.userRecipes = snap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a,b) => b.id - a.id);
+                onAuthStateChanged(auth, (user) => {
+                    state.user = user;
+                    if (user) {
+                        onSnapshot(collection(db, 'artifacts', appId, 'users', user.uid, 'recipes'), (snap) => {
+                            state.userRecipes = snap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a,b) => b.id - a.id);
+                            render();
+                        });
+                        onSnapshot(collection(db, 'artifacts', appId, 'users', user.uid, 'pantry'), (snap) => {
+                            state.userIngredients = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+                            render();
+                        });
+                    } else {
                         render();
-                    });
-                    onSnapshot(collection(db, 'artifacts', appId, 'users', user.uid, 'pantry'), (snap) => {
-                        state.userIngredients = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-                        render();
-                    });
-                }
+                    }
+                });
+            } else {
                 render();
-            });
-
-            render();
+            }
         };
 
         init();
